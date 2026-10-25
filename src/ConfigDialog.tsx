@@ -53,7 +53,7 @@ export default function ConfigDialog({ root, config, godotExe, onSave, onClose }
           </div>
           <span className="muted small">relativo à origem (ex.: ../godot-alvorland)</span>
         </label>
-        {field("godotAssetsDir", "Pasta dos modelos no Godot", "dentro do projeto; fica IGUAL à pasta de modelos da origem (o que não existe na origem é apagado)")}
+        {field("godotAssetsDir", "Pasta dos modelos no Godot", "dentro do projeto (ex.: assets); fica IGUAL à pasta de modelos da origem: o que não existe na origem é apagado")}
         {field("godotMapsDir", "Pasta dos mapas no Godot", "dentro do projeto; recebe uma cena .tscn por mapa")}
         <label>
           Executável do Godot (para importar depois de sincronizar)

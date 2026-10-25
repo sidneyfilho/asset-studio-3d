@@ -27,8 +27,8 @@ Requer Node 20+ e Rust (cargo). Na primeira vez rode `npm install`.
   As miniaturas usam a inclinação da câmera do jogo (30° de elevação, 30° de giro) e ficam no cache do app.
 - **Visualizador 3D**: clique num modelo. Botão esquerdo gira, direito arrasta, roda dá zoom. A grade tem células de
   2 m. Mostra tamanho em metros e em células, se a base está no chão, triângulos, materiais e toca as animações.
-- **Não são peças**: passe o mouse numa pasta e clique ↓ para tirá-la de "Todos" e da paleta do mapa (ex.: uma cena
-  inteira feita no Blender). ↑ volta.
+- **Não são peças**: passe o mouse numa pasta e clique ↓ para tirá-la de "Todos" e da paleta do mapa (ex.: `scenes`, cenas
+  inteiras feitas no Blender). ↑ volta. Fica guardado em `alvorland-studio.json` (`notPieces`).
 - **Configurar**: projeto Godot de destino, pastas da origem e do Godot, executável do Godot.
 
 ## Editor de mapa
@@ -47,7 +47,7 @@ Na barra lateral, **Mapas** lista os mapas de `map/`; "+ Novo mapa" cria um.
 
 Primeiro mostra o que vai acontecer (copiar, apagar, mapas gerados) e só muda algo depois de confirmar.
 
-- `assets/` da origem → pasta de modelos no Godot (padrão `res://assets/items/`): copia o que é novo ou mudou e
+- `assets/` da origem → pasta de modelos no Godot (padrão `res://assets/`): copia o que é novo ou mudou e
   **apaga o que não existe mais na origem**. Ficam só os arquivos que o Godot cria ao importar (o `.import` de cada
   arquivo e as texturas que ele extrai de um `.glb`). Por isso essa pasta é só da ferramenta: não coloque nada à mão nela.
 - cada `map/<nome>.map.json` → `res://maps/<nome>.tscn`, um nó por objeto instanciando o `.glb`. Cenas `.tscn` dessa

@@ -16,14 +16,17 @@ export type WsConfig = {
   godotAssetsDir: string;
   /** pasta do Godot onde as cenas .tscn dos mapas são geradas */
   godotMapsDir: string;
+  /** subpastas de modelos que não são peças (ex.: cenas inteiras): ficam fora de "Todos" e da paleta do mapa */
+  notPieces: string[];
 };
 
 export const DEFAULT_CONFIG: WsConfig = {
   godotProject: "../godot-alvorland",
   assetsDir: "assets",
   mapsDir: "map",
-  godotAssetsDir: "assets/items",
+  godotAssetsDir: "assets",
   godotMapsDir: "maps",
+  notPieces: ["scenes"],
 };
 
 /** Junta caminhos e resolve "." e ".." (Windows, com "\") */

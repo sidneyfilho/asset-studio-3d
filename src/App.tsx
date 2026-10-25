@@ -11,7 +11,6 @@ import SyncDialog from "./SyncDialog";
 import ConfigDialog from "./ConfigDialog";
 
 const RECENT_KEY = "recentSources";
-const HIDDEN_KEY = "hiddenFolders:";
 const EXE_KEY = "godotExe";
 const DEFAULT_EXE = "C:\\Program Files\\Godot_v4.7\\Godot_v4.7.2-stable_win64_console.exe";
 
@@ -54,14 +53,15 @@ export default function App() {
   const [editing, setEditing] = useState<Editing>(null);
   const [syncing, setSyncing] = useState(false);
   const [configuring, setConfiguring] = useState(false);
-  // pastas que não são peças (ex.: cenas inteiras do Blender): ficam fora de "Todos" e da paleta do mapa
-  const [hidden, setHidden] = useState<string[]>([]);
+  // pastas que não são peças (ex.: cenas inteiras do Blender): ficam fora de "Todos" e da paleta do mapa;
+  // guardadas na configuração da origem (notPieces)
+  const hidden = ws?.config.notPieces ?? [];
 
-  function toggleHidden(f: string) {
+  async function toggleHidden(f: string) {
     if (!ws) return;
-    const next = hidden.includes(f) ? hidden.filter((x) => x !== f) : [...hidden, f];
-    setHidden(next);
-    writeJson(HIDDEN_KEY + ws.root, next);
+    const next = { ...ws.config, notPieces: hidden.includes(f) ? hidden.filter((x) => x !== f) : [...hidden, f] };
+    await saveConfig(ws.root, next);
+    setWs(resolveWorkspace(ws.root, next));
   }
 
   async function load(root: string, config?: WsConfig) {
@@ -73,7 +73,6 @@ export default function App() {
       setWs(w);
       setModels(list);
       setMaps(mapList);
-      setHidden(readJson(HIDDEN_KEY + root, []));
       setSelected((s) => (s && list.some((m) => m.abs === s.abs) ? s : null));
       // o projeto Godot de destino pode ainda não estar configurado: a origem abre mesmo assim
       openProject(w.godot)
