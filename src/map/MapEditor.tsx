@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { pathExists, readText, writeText, type ModelEntry } from "../api";
 import Card, { modelName } from "../Card";
 import { joinPath, type Workspace } from "../workspace";
-import { MapScene, type Snap } from "./mapScene";
+import { MapScene, type GizmoMode, type Snap } from "./mapScene";
 import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance } from "./mapFile";
 
 type Props = {
@@ -15,6 +15,11 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
 };
+
+/** Ângulo em graus entre 0 e 360, com duas casas */
+const normDeg = (d: number) => Math.round((((d % 360) + 360) % 360) * 100) / 100;
+/** Posição com precisão de milímetro (evita 0,30000000004 no arquivo) */
+const roundPos = (p: [number, number, number]): [number, number, number] => p.map((v) => Math.round(v * 1000) / 1000) as [number, number, number];
 
 const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
 
@@ -29,6 +34,7 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   const [placing, setPlacing] = useState<string | null>(null);
   const [placeRot, setPlaceRot] = useState(0);
   const [snap, setSnap] = useState<Snap>("cell");
+  const [mode, setMode] = useState<GizmoMode>("translate");
   const [folder, setFolder] = useState<string>("");
   const [filter, setFilter] = useState("");
   const [message, setMessage] = useState<string>("");
@@ -82,7 +88,8 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         change((m) => ({ ...m, instances: [...m.instances, inst] }));
       },
       onPick: (id) => setSelected(id),
-      onMove: (id, pos) => change((m) => ({ ...m, instances: m.instances.map((i) => (i.id === id ? { ...i, pos } : i)) })),
+      onMove: (id, pos, rotY) =>
+        change((m) => ({ ...m, instances: m.instances.map((i) => (i.id === id ? { ...i, pos: roundPos(pos), rotY: normDeg(rotY) } : i)) })),
     });
     sceneRef.current = s;
     s.setInstances(mapRef.current.instances);
@@ -96,8 +103,10 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   useEffect(() => sceneRef.current?.setSelected(selected), [selected]);
   useEffect(() => void sceneRef.current?.setGhost(placing, placeRot), [placing, placeRot]);
   useEffect(() => {
-    if (sceneRef.current) sceneRef.current.snap = snap;
-  }, [snap]);
+    if (!sceneRef.current) return;
+    sceneRef.current.snap = snap;
+    sceneRef.current.setMode(mode);
+  }, [snap, mode]);
 
   const sel = map.instances.find((i) => i.id === selected) ?? null;
   const locked = map.instances.filter((i) => i.locked);
@@ -143,10 +152,21 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
       if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); k.doSave(); return; }
       if (e.ctrlKey && e.key.toLowerCase() === "z") { e.preventDefault(); k.undo(); return; }
       if (e.ctrlKey && e.key.toLowerCase() === "d" && k.sel) { e.preventDefault(); duplicate(k.sel); return; }
-      if (e.key.toLowerCase() === "r") {
-        const step = e.shiftKey ? -90 : 90;
-        if (k.placing) setPlaceRot((r) => (r + step + 360) % 360);
-        else if (k.sel) update(k.sel.id, { rotY: (k.sel.rotY + step + 360) % 360 });
+      if (e.ctrlKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "w") setMode("translate");
+      if (key === "e") setMode("rotate");
+      // R gira 90°; Q e T giram 15° (com Shift, 1°)
+      const turn = key === "r" ? (e.shiftKey ? -90 : 90) : key === "q" ? (e.shiftKey ? -1 : -15) : key === "t" ? (e.shiftKey ? 1 : 15) : 0;
+      if (turn) {
+        if (k.placing) setPlaceRot((r) => normDeg(r + turn));
+        else if (k.sel) update(k.sel.id, { rotY: normDeg(k.sel.rotY + turn) });
+      }
+      // Page Up / Page Down sobem e descem 10 cm (com Shift, 1 cm)
+      if ((e.key === "PageUp" || e.key === "PageDown") && k.sel) {
+        e.preventDefault();
+        const dy = (e.key === "PageUp" ? 1 : -1) * (e.shiftKey ? 0.01 : 0.1);
+        update(k.sel.id, { pos: roundPos([k.sel.pos[0], k.sel.pos[1] + dy, k.sel.pos[2]]) });
       }
       if ((e.key === "Delete" || e.key === "Backspace") && k.sel) remove(k.sel.id);
       if (e.key === "Escape") { setPlacing(null); setSelected(null); }
@@ -178,6 +198,10 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
             <option value="free">Livre</option>
           </select>
         </label>
+        <div className="modes">
+          <button className={mode === "translate" ? "on" : ""} onClick={() => setMode("translate")} title="W: setas para mover; a verde sobe e desce">Mover (W)</button>
+          <button className={mode === "rotate" ? "on" : ""} onClick={() => setMode("rotate")} title="E: anel para girar em volta do eixo vertical">Girar (E)</button>
+        </div>
         <span className="muted">{map.instances.length} objetos</span>
         <span className="spacer" />
         <span className="muted msg">{message}</span>
@@ -207,7 +231,9 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         <div className="help">
           {placing
             ? `Colocando ${modelName(placing)}: clique no chão · R gira (${placeRot}°) · Esc para parar`
-            : "Escolha um modelo na paleta · clique num objeto para selecionar · botão direito gira a vista · botão do meio arrasta · roda dá zoom"}
+            : sel
+              ? "W mover (seta verde sobe/desce) · E girar · R 90° · Q/T 15° · Page Up/Down altura · Delete apaga · Ctrl+D duplica"
+              : "Escolha um modelo na paleta · clique num objeto para selecionar · botão direito gira a vista · botão do meio arrasta · roda dá zoom"}
         </div>
       </div>
       <section className="inspector">

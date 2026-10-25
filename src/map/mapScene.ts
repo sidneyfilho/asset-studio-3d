@@ -13,8 +13,10 @@ export type Snap = "cell" | "half" | "free";
 type Callbacks = {
   onPlace: (pos: [number, number, number]) => void;
   onPick: (id: string | null) => void;
-  onMove: (id: string, pos: [number, number, number]) => void;
+  onMove: (id: string, pos: [number, number, number], rotY: number) => void;
 };
+
+export type GizmoMode = "translate" | "rotate";
 
 const GROUND = 400; // tamanho do chão desenhado, em metros
 
@@ -36,6 +38,7 @@ export class MapScene {
   private selBox = new THREE.BoxHelper(new THREE.Object3D(), 0xd9a35b);
   private dragging = false;
   private downAt: { x: number; y: number } | null = null;
+  private dragStart = new THREE.Vector3();
   private ro: ResizeObserver;
   snap: Snap = "cell";
   cell = 2;
@@ -66,26 +69,32 @@ export class MapScene {
     this.orbit.enableDamping = true;
     this.orbit.update();
 
-    // seta de mover: só no plano do chão (x e z)
+    // setas do objeto selecionado: modo "mover" (x, z e a seta verde de subir/descer) ou "girar" (só em volta do eixo vertical)
     this.gizmo = new TransformControls(this.cam, this.renderer.domElement);
-    this.gizmo.showY = false;
     this.gizmo.addEventListener("dragging-changed", (e) => {
       this.dragging = Boolean(e.value);
       this.orbit.enabled = !this.dragging;
+      const o = this.gizmo.object;
+      if (this.dragging && o) this.dragStart = o.position.clone();
       const id = this.selected;
-      if (!this.dragging && id) {
-        const p = this.objects.get(id)?.group.position;
-        if (p) this.cb.onMove(id, [p.x, p.y, p.z]);
+      if (!this.dragging && id && o) {
+        const p = o.position;
+        this.cb.onMove(id, [p.x, p.y, p.z], THREE.MathUtils.radToDeg(o.rotation.y));
       }
     });
+    // o encaixe ao arrastar anda em passos a partir de onde a peça estava (não puxa para o centro da célula)
     this.gizmo.addEventListener("objectChange", () => {
       const o = this.gizmo.object;
-      if (o) {
-        const p = this.snapPoint(o.position);
-        o.position.set(p.x, o.position.y, p.z);
-        this.selBox.update();
+      if (o && this.gizmo.mode === "translate") {
+        const step = this.snap === "cell" ? this.cell : this.snap === "half" ? 0.5 : 0;
+        const ystep = this.snap === "free" ? 0 : 0.05;
+        const s = this.dragStart;
+        const q = (v: number, v0: number, st: number) => (st ? v0 + Math.round((v - v0) / st) * st : v);
+        o.position.set(q(o.position.x, s.x, step), q(o.position.y, s.y, ystep), q(o.position.z, s.z, step));
       }
+      this.selBox.update();
     });
+    this.setMode("translate");
     this.scene.add(this.gizmo.getHelper());
 
     const c = this.renderer.domElement;
@@ -101,6 +110,16 @@ export class MapScene {
       this.orbit.update();
       this.renderer.render(this.scene, this.cam);
     });
+  }
+
+  /** Mover (x, z e altura) ou girar (em volta do eixo vertical, de 15 em 15° com encaixe) */
+  setMode(mode: GizmoMode) {
+    this.gizmo.setMode(mode);
+    const rotate = mode === "rotate";
+    this.gizmo.showX = !rotate;
+    this.gizmo.showZ = !rotate;
+    this.gizmo.showY = true;
+    this.gizmo.setRotationSnap(rotate && this.snap !== "free" ? THREE.MathUtils.degToRad(15) : null);
   }
 
   dispose() {

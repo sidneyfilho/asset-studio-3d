@@ -37,7 +37,11 @@ Na barra lateral, **Mapas** lista os mapas de `map/`; "+ Novo mapa" cria um.
 
 - Paleta à esquerda: escolha a pasta, clique num modelo e clique no chão para colocar (pode clicar várias vezes).
   **R** gira 90° (Shift+R para o outro lado), **Esc** para de colocar.
-- Clique num objeto para selecionar: arraste as setas para mover, **Delete** apaga, **Ctrl+D** duplica.
+- Clique num objeto para selecionar. **W** (Mover): setas para arrastar no chão e a seta **verde sobe e desce**.
+  **E** (Girar): anel para girar em volta do eixo vertical (de 15 em 15° com encaixe). **R** gira 90° (Shift+R volta),
+  **Q**/**T** giram 15° (com Shift, 1°), **Page Up/Page Down** sobem e descem 10 cm (com Shift, 1 cm).
+  Ao arrastar com encaixe, a peça anda em passos a partir de onde estava (não é puxada para o centro da célula).
+  **Delete** apaga, **Ctrl+D** duplica.
   À direita dá para digitar posição, giro e escala, e **travar** o objeto (ex.: a base do mapa), que aí não é mais
   selecionado clicando na vista; os travados aparecem numa lista à direita para destravar.
 - **Ctrl+Z** desfaz, **Ctrl+S** salva (em `map/<nome>.map.json`).
