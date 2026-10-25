@@ -1,0 +1,260 @@
+// Editor de mapa: paleta de modelos à esquerda, vista 3D no meio, dados do objeto selecionado à direita.
+// Clique num modelo da paleta e clique no chão para colocar; clique num objeto para selecionar e arrastar.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
+import { readText, writeText, type ModelEntry, type ProjectInfo } from "../api";
+import Card, { modelName } from "../Card";
+import { MapScene, type Snap } from "./mapScene";
+import { newId, newMap, parseMap, serializeMap, toTscn, type MapData, type MapInstance } from "./mapFile";
+
+type Props = {
+  project: ProjectInfo;
+  models: ModelEntry[];
+  /** caminho do .map.json aberto; null = mapa novo */
+  file: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+};
+
+const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
+
+export default function MapEditor({ project, models, file, onClose, onSaved }: Props) {
+  const host = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<MapScene | null>(null);
+  const [map, setMap] = useState<MapData>(() => newMap("mapa_novo"));
+  const [path, setPath] = useState<string | null>(file);
+  const [history, setHistory] = useState<MapData[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [placing, setPlacing] = useState<string | null>(null);
+  const [placeRot, setPlaceRot] = useState(0);
+  const [snap, setSnap] = useState<Snap>("cell");
+  const [folder, setFolder] = useState<string>("");
+  const [filter, setFilter] = useState("");
+  const [message, setMessage] = useState<string>("");
+
+  const absOf = useCallback((rel: string) => project.path + "\\" + rel.replace(/\//g, "\\"), [project.path]);
+
+  // mapRef sempre tem o mapa atual, assim as mudanças vindas do mouse não usam um estado velho
+  const mapRef = useRef(map);
+  const historyRef = useRef(history);
+  const setMapNow = (m: MapData) => {
+    mapRef.current = m;
+    setMap(m);
+  };
+
+  // muda o mapa guardando o estado anterior para o Ctrl+Z
+  const change = useCallback((fn: (m: MapData) => MapData) => {
+    historyRef.current = [...historyRef.current.slice(-99), mapRef.current];
+    setHistory(historyRef.current);
+    setMapNow(fn(mapRef.current));
+    setDirty(true);
+  }, []);
+
+  const undo = useCallback(() => {
+    const h = historyRef.current;
+    if (!h.length) return;
+    historyRef.current = h.slice(0, -1);
+    setHistory(historyRef.current);
+    setMapNow(h[h.length - 1]);
+    setDirty(true);
+  }, []);
+
+  // abre o arquivo do mapa
+  useEffect(() => {
+    if (!file) return;
+    readText(file)
+      .then((t) => setMapNow(parseMap(t)))
+      .catch((e) => setMessage(String(e)));
+  }, [file]);
+
+  // cria a cena 3D uma vez; os avisos do mouse viram mudanças no mapa
+  const placingRef = useRef(placing);
+  const placeRotRef = useRef(placeRot);
+  placingRef.current = placing;
+  placeRotRef.current = placeRot;
+  useEffect(() => {
+    const s = new MapScene(host.current!, absOf, {
+      onPlace: (pos) => {
+        const model = placingRef.current;
+        if (!model) return;
+        const inst: MapInstance = { id: newId(), model, pos, rotY: placeRotRef.current, scale: 1 };
+        change((m) => ({ ...m, instances: [...m.instances, inst] }));
+      },
+      onPick: (id) => setSelected(id),
+      onMove: (id, pos) => change((m) => ({ ...m, instances: m.instances.map((i) => (i.id === id ? { ...i, pos } : i)) })),
+    });
+    sceneRef.current = s;
+    s.setInstances(mapRef.current.instances);
+    return () => {
+      s.dispose();
+      sceneRef.current = null;
+    };
+  }, [absOf, change]);
+
+  useEffect(() => sceneRef.current?.setInstances(map.instances), [map.instances]);
+  useEffect(() => sceneRef.current?.setSelected(selected), [selected]);
+  useEffect(() => void sceneRef.current?.setGhost(placing, placeRot), [placing, placeRot]);
+  useEffect(() => {
+    if (sceneRef.current) sceneRef.current.snap = snap;
+  }, [snap]);
+
+  const sel = map.instances.find((i) => i.id === selected) ?? null;
+  const update = (id: string, patch: Partial<MapInstance>) =>
+    change((m) => ({ ...m, instances: m.instances.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
+  const remove = (id: string) => {
+    change((m) => ({ ...m, instances: m.instances.filter((i) => i.id !== id) }));
+    setSelected(null);
+  };
+  const duplicate = (i: MapInstance) => {
+    const copy = { ...i, id: newId(), pos: [i.pos[0] + map.cell, i.pos[1], i.pos[2]] as [number, number, number] };
+    change((m) => ({ ...m, instances: [...m.instances, copy] }));
+    setSelected(copy.id);
+  };
+
+  async function doSave() {
+    let p = path;
+    if (!p) {
+      const chosen = await save({
+        title: "Salvar mapa",
+        defaultPath: `${project.path}\\maps\\${map.name}.map.json`,
+        filters: [{ name: "Mapa do Alvorland Studio", extensions: ["json"] }],
+      });
+      if (!chosen) return;
+      p = /\.map\.json$/i.test(chosen) ? chosen : chosen.replace(/(\.json)?$/i, ".map.json");
+    }
+    try {
+      const tscn = p.replace(/\.map\.json$/i, ".tscn");
+      await writeText(p, serializeMap(map));
+      await writeText(tscn, toTscn(map));
+      setPath(p);
+      setDirty(false);
+      const inProject = tscn.toLowerCase().startsWith(project.path.toLowerCase());
+      setMessage(inProject ? `Salvo. Cena do Godot: res://${tscn.slice(project.path.length + 1).replace(/\\/g, "/")}` : `Salvo em ${tscn} (fora do projeto)`);
+      onSaved();
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+
+  // atalhos de teclado (fora das caixas de texto)
+  const keyState = { placing, sel, doSave, undo };
+  const keyRef = useRef(keyState);
+  keyRef.current = keyState;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest("input, select, textarea")) return;
+      const k = keyRef.current;
+      if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); k.doSave(); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === "z") { e.preventDefault(); k.undo(); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === "d" && k.sel) { e.preventDefault(); duplicate(k.sel); return; }
+      if (e.key.toLowerCase() === "r") {
+        const step = e.shiftKey ? -90 : 90;
+        if (k.placing) setPlaceRot((r) => (r + step + 360) % 360);
+        else if (k.sel) update(k.sel.id, { rotY: (k.sel.rotY + step + 360) % 360 });
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && k.sel) remove(k.sel.id);
+      if (e.key === "Escape") { setPlacing(null); setSelected(null); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const folders = useMemo(() => [...new Set(models.map((m) => folderOf(m.rel)))].sort(), [models]);
+  const palette = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    return models.filter((m) => (!folder || folderOf(m.rel) === folder) && (!q || m.rel.toLowerCase().includes(q)));
+  }, [models, folder, filter]);
+
+  const fileName = path ? path.split(/[\\/]/).pop() : "(não salvo)";
+  return (
+    <div className="editor">
+      <header>
+        <button onClick={() => (!dirty || confirm("Sair sem salvar as mudanças?")) && onClose()}>← Voltar</button>
+        <label>
+          Nome <input value={map.name} onChange={(e) => change((m) => ({ ...m, name: e.target.value }))} />
+        </label>
+        <span className="muted">{fileName}{dirty ? " •" : ""}</span>
+        <label>
+          Encaixe
+          <select value={snap} onChange={(e) => setSnap(e.target.value as Snap)}>
+            <option value="cell">Centro da célula ({map.cell} m)</option>
+            <option value="half">Meio metro</option>
+            <option value="free">Livre</option>
+          </select>
+        </label>
+        <span className="muted">{map.instances.length} objetos</span>
+        <span className="spacer" />
+        <span className="muted msg">{message}</span>
+        <button onClick={undo} disabled={!history.length} title="Ctrl+Z">Desfazer</button>
+        <button className="primary" onClick={doSave} title="Ctrl+S">Salvar</button>
+      </header>
+      <aside className="palette">
+        <select value={folder} onChange={(e) => setFolder(e.target.value)}>
+          <option value="">Todas as pastas</option>
+          {folders.map((f) => <option key={f}>{f}</option>)}
+        </select>
+        <input placeholder="Filtrar…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <div className="grid small">
+          {palette.map((m) => (
+            <Card
+              key={m.abs}
+              model={m}
+              small
+              active={placing === m.rel}
+              onClick={() => { setPlacing(placing === m.rel ? null : m.rel); setSelected(null); }}
+            />
+          ))}
+        </div>
+      </aside>
+      <div className="editor-view">
+        <div className="editor-canvas" ref={host} />
+        <div className="help">
+          {placing
+            ? `Colocando ${modelName(placing)}: clique no chão · R gira (${placeRot}°) · Esc para parar`
+            : "Escolha um modelo na paleta · clique num objeto para selecionar · botão direito gira a vista · botão do meio arrasta · roda dá zoom"}
+        </div>
+      </div>
+      <section className="inspector">
+        {sel ? (
+          <>
+            <h3 title={sel.model}>{modelName(sel.model)}</h3>
+            <div className="muted">{sel.model}</div>
+            <div className="fields">
+              {(["X", "Y", "Z"] as const).map((axis, k) => (
+                <label key={axis}>
+                  {axis} (m)
+                  <input
+                    type="number"
+                    step={0.5}
+                    value={Number(sel.pos[k].toFixed(3))}
+                    onChange={(e) => {
+                      const pos = [...sel.pos] as [number, number, number];
+                      pos[k] = Number(e.target.value);
+                      update(sel.id, { pos });
+                    }}
+                  />
+                </label>
+              ))}
+              <label>
+                Giro (°)
+                <input type="number" step={15} value={sel.rotY} onChange={(e) => update(sel.id, { rotY: Number(e.target.value) })} />
+              </label>
+              <label>
+                Escala
+                <input type="number" step={0.1} min={0.1} value={sel.scale} onChange={(e) => update(sel.id, { scale: Math.max(0.01, Number(e.target.value)) })} />
+              </label>
+            </div>
+            <div className="actions">
+              <button onClick={() => update(sel.id, { rotY: (sel.rotY + 90) % 360 })} title="R">Girar 90°</button>
+              <button onClick={() => duplicate(sel)} title="Ctrl+D">Duplicar</button>
+              <button onClick={() => remove(sel.id)} title="Delete">Apagar</button>
+            </div>
+          </>
+        ) : (
+          <div className="muted">Nenhum objeto selecionado.</div>
+        )}
+      </section>
+    </div>
+  );
+}

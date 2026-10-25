@@ -1,14 +1,15 @@
-// Tela principal: escolher o projeto Godot, navegar pelas pastas de modelos e ver cada um em 3D.
-import { useEffect, useMemo, useState } from "react";
+// Tela principal: escolher o projeto Godot, navegar pelas pastas de modelos, ver cada um em 3D e abrir os mapas.
+import { useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openProject, listModels, type ProjectInfo, type ModelEntry } from "./api";
-import { thumbnailFor } from "./three/thumbnails";
+import { openProject, listModels, listMaps, type ProjectInfo, type ModelEntry } from "./api";
+import Card from "./Card";
 import Viewer from "./Viewer";
+import MapEditor from "./map/MapEditor";
 
 const RECENT_KEY = "recentProjects";
 const IGNORE_KEY = "ignoredFolders";
 const DEFAULT_IGNORE = "backups, node_modules, addons";
-const MAPS_KEY = "mapFolders:";
+const HIDDEN_KEY = "mapFolders:";
 
 // localStorage só guarda preferências desta janela (projetos recentes, pastas ignoradas)
 function readJson<T>(key: string, fallback: T): T {
@@ -30,24 +31,31 @@ function writeJson(key: string, value: unknown) {
 /** Pasta do modelo, relativa ao projeto (ex.: assets/nature) */
 const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
 
+/** mapa aberto no editor: null = nenhum; file null = mapa novo */
+type Editing = { file: string | null } | null;
+
 export default function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [recent, setRecent] = useState<string[]>(() => readJson(RECENT_KEY, []));
   const [ignore, setIgnore] = useState<string>(() => readJson(IGNORE_KEY, DEFAULT_IGNORE));
   const [models, setModels] = useState<ModelEntry[]>([]);
+  const [maps, setMaps] = useState<ModelEntry[]>([]);
   const [folder, setFolder] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<ModelEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  // pastas marcadas como "mapas" (cenas inteiras, não peças); guardadas por projeto
-  const [mapFolders, setMapFolders] = useState<string[]>([]);
+  const [editing, setEditing] = useState<Editing>(null);
+  // pastas que não são peças (ex.: cenas inteiras do Blender): ficam fora de "Todos" e da paleta do mapa
+  const [hidden, setHidden] = useState<string[]>([]);
 
-  function toggleMapFolder(f: string) {
+  const ignoreList = () => ignore.split(",").map((s) => s.trim()).filter(Boolean);
+
+  function toggleHidden(f: string) {
     if (!project) return;
-    const next = mapFolders.includes(f) ? mapFolders.filter((x) => x !== f) : [...mapFolders, f];
-    setMapFolders(next);
-    writeJson(MAPS_KEY + project.path, next);
+    const next = hidden.includes(f) ? hidden.filter((x) => x !== f) : [...hidden, f];
+    setHidden(next);
+    writeJson(HIDDEN_KEY + project.path, next);
   }
 
   async function load(path: string) {
@@ -55,11 +63,11 @@ export default function App() {
     setLoading(true);
     try {
       const info = await openProject(path);
-      const ign = ignore.split(",").map((s) => s.trim()).filter(Boolean);
-      const list = await listModels(info.path, ign);
+      const [list, mapList] = await Promise.all([listModels(info.path, ignoreList()), listMaps(info.path, ignoreList())]);
       setProject(info);
       setModels(list);
-      setMapFolders(readJson(MAPS_KEY + info.path, []));
+      setMaps(mapList);
+      setHidden(readJson(HIDDEN_KEY + info.path, []));
       setSelected((s) => (s && list.some((m) => m.abs === s.abs) ? s : null));
       const r = [path, ...recent.filter((p) => p !== path)].slice(0, 8);
       setRecent(r);
@@ -69,6 +77,10 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function reloadMaps() {
+    if (project) setMaps(await listMaps(project.path, ignoreList()));
   }
 
   async function pickProject() {
@@ -83,29 +95,13 @@ export default function App() {
     return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [models]);
 
+  const pieces = useMemo(() => models.filter((m) => !hidden.includes(folderOf(m.rel))), [models, hidden]);
+
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    // "Todos" mostra só as peças; as pastas de mapas aparecem quando abertas pelo nome
-    const inFolder = (m: ModelEntry) => (folder === null ? !mapFolders.includes(folderOf(m.rel)) : folderOf(m.rel) === folder);
-    return models.filter((m) => inFolder(m) && (!q || m.rel.toLowerCase().includes(q)));
-  }, [models, folder, filter, mapFolders]);
-
-  const modelFolders = folders.filter(([f]) => !mapFolders.includes(f));
-  const sceneFolders = folders.filter(([f]) => mapFolders.includes(f));
-  const folderButton = ([f, n]: [string, number]) => (
-    <div key={f} className={folder === f ? "folder active" : "folder"}>
-      <button className="folder-name" onClick={() => setFolder(f)} title={f}>
-        {f} <span>{n}</span>
-      </button>
-      <button
-        className="folder-move"
-        onClick={() => toggleMapFolder(f)}
-        title={mapFolders.includes(f) ? "Voltar para os modelos" : "Marcar como pasta de mapas (cenas inteiras, não peças)"}
-      >
-        {mapFolders.includes(f) ? "↑" : "↓"}
-      </button>
-    </div>
-  );
+    const base = folder === null ? pieces : models.filter((m) => folderOf(m.rel) === folder);
+    return base.filter((m) => !q || m.rel.toLowerCase().includes(q));
+  }, [models, pieces, folder, filter]);
 
   if (!project) {
     return (
@@ -130,6 +126,36 @@ export default function App() {
     );
   }
 
+  if (editing) {
+    return (
+      <MapEditor
+        key={editing.file ?? "novo"}
+        project={project}
+        models={pieces}
+        file={editing.file}
+        onClose={() => setEditing(null)}
+        onSaved={reloadMaps}
+      />
+    );
+  }
+
+  const shownFolders = folders.filter(([f]) => !hidden.includes(f));
+  const hiddenFolders = folders.filter(([f]) => hidden.includes(f));
+  const folderRow = ([f, n]: [string, number]) => (
+    <div key={f} className={folder === f ? "folder active" : "folder"}>
+      <button className="folder-name" onClick={() => setFolder(f)} title={f}>
+        {f} <span>{n}</span>
+      </button>
+      <button
+        className="folder-move"
+        onClick={() => toggleHidden(f)}
+        title={hidden.includes(f) ? "Voltar a usar como peças" : "Não são peças (ex.: cena inteira): tirar de Todos e da paleta do mapa"}
+      >
+        {hidden.includes(f) ? "↑" : "↓"}
+      </button>
+    </div>
+  );
+
   return (
     <div className="app">
       <header>
@@ -141,16 +167,24 @@ export default function App() {
         <button onClick={() => { setProject(null); setFolder(null); setSelected(null); }}>Trocar projeto</button>
       </header>
       <aside>
+        <h4>Mapas</h4>
+        {maps.map((m) => (
+          <div key={m.abs} className="folder">
+            <button className="folder-name" onClick={() => setEditing({ file: m.abs })} title={m.rel}>
+              {m.rel.split("/").pop()!.replace(/\.map\.json$/i, "")} <span>{folderOf(m.rel)}</span>
+            </button>
+          </div>
+        ))}
+        <button className="new-map" onClick={() => setEditing({ file: null })}>+ Novo mapa</button>
         <h4>Modelos</h4>
         <div className={folder === null ? "folder active" : "folder"}>
           <button className="folder-name" onClick={() => setFolder(null)}>
-            Todos <span>{modelFolders.reduce((s, [, n]) => s + n, 0)}</span>
+            Todos <span>{pieces.length}</span>
           </button>
         </div>
-        {modelFolders.map(folderButton)}
-        <h4>Mapas</h4>
-        {sceneFolders.map(folderButton)}
-        {sceneFolders.length === 0 && <div className="muted hint">Use ↓ numa pasta para marcá-la como mapas.</div>}
+        {shownFolders.map(folderRow)}
+        {hiddenFolders.length > 0 && <h4>Não são peças</h4>}
+        {hiddenFolders.map(folderRow)}
       </aside>
       <main>
         <input className="search" placeholder="Filtrar por nome…" value={filter} onChange={(e) => setFilter(e.target.value)} />
@@ -165,25 +199,5 @@ export default function App() {
         {selected ? <Viewer model={selected} /> : <div className="muted pad">Clique num modelo para ver em 3D.</div>}
       </section>
     </div>
-  );
-}
-
-function Card({ model, active, onClick }: { model: ModelEntry; active: boolean; onClick: () => void }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    // ao sair da tela o pedido é cancelado, assim a fila atende primeiro o que está sendo visto
-    const ctl = new AbortController();
-    thumbnailFor(model, ctl.signal)
-      .then((u) => !ctl.signal.aborted && setSrc(u))
-      .catch(() => !ctl.signal.aborted && setFailed(true));
-    return () => ctl.abort();
-  }, [model.abs, model.mtime]);
-  const name = model.rel.split("/").pop()!.replace(/\.(glb|gltf)$/i, "");
-  return (
-    <button className={active ? "card active" : "card"} onClick={onClick} title={model.rel}>
-      <div className="thumb">{src ? <img src={src} alt="" /> : <span className="muted">{failed ? "erro" : "…"}</span>}</div>
-      <div className="name">{name}</div>
-    </button>
   );
 }

@@ -21,6 +21,25 @@ Requer Node 20+ e Rust (cargo). Na primeira vez rode `npm install`.
   A grade do chão tem células de 2 m (padrão do kit). Mostra tamanho em metros e em células, se a base está no
   chão (y = 0), triângulos, malhas, materiais, tamanho do arquivo e toca as animações.
 
+- **Não são peças**: passe o mouse numa pasta e clique ↓ para tirá-la de "Todos" e da paleta do mapa
+  (ex.: `assets/ref`, que tem a cena inteira feita no Blender). ↑ volta. Fica guardado por projeto.
+
+## Editor de mapa (etapa 2)
+
+Na barra lateral, **Mapas** lista os mapas do projeto (`*.map.json`); "+ Novo mapa" cria um.
+
+- Paleta à esquerda: escolha a pasta, clique num modelo e clique no chão para colocar (pode clicar várias vezes).
+  **R** gira 90° (Shift+R para o outro lado), **Esc** para de colocar.
+- Clique num objeto para selecionar: arraste as setas para mover, **Delete** apaga, **Ctrl+D** duplica.
+  À direita dá para digitar posição, giro e escala.
+- **Ctrl+Z** desfaz, **Ctrl+S** salva.
+- Vista: botão direito gira, botão do meio arrasta, roda dá zoom.
+- Encaixe: centro da célula de 2 m (peças do kit), meio metro, ou livre.
+
+Salvar grava dois arquivos lado a lado (padrão: pasta `maps/` do projeto):
+- `nome.map.json`: o arquivo de trabalho, que a ferramenta abre de novo;
+- `nome.tscn`: a cena do Godot, com um nó por objeto instanciando o `.glb` (posição, giro e escala). É o que o jogo usa.
+
 ## Estrutura
 
 - `src-tauri/src/lib.rs`: lado Rust (ler `project.godot`, listar modelos, guardar miniaturas).
@@ -28,7 +47,7 @@ Requer Node 20+ e Rust (cargo). Na primeira vez rode `npm install`.
 - `src/Viewer.tsx`: visualizador 3D.
 - `src/three/loadModel.ts`: carrega GLB do disco (inclusive texturas externas, como as da Kenney).
 - `src/three/thumbnails.ts`: fila de miniaturas.
-
-## Próxima etapa
-
-Editor de mapa em grade (visto de cima), pintando e girando peças, gravando uma cena `.tscn` que o Godot abre direto.
+- `src/three/modelCache.ts`: lê cada modelo uma vez e faz cópias para o mapa.
+- `src/map/MapEditor.tsx`: tela do editor de mapa.
+- `src/map/mapScene.ts`: parte 3D do editor (chão, grade, colocar, selecionar, mover).
+- `src/map/mapFile.ts`: formato `.map.json` e exportação `.tscn`.
