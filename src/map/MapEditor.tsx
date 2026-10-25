@@ -5,7 +5,7 @@ import { pathExists, readText, writeText, type ModelEntry } from "../api";
 import Card, { modelName } from "../Card";
 import { joinPath, type Workspace } from "../workspace";
 import { MapScene, type GizmoMode, type Snap } from "./mapScene";
-import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance } from "./mapFile";
+import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance, type ScatterLayer, type ScatterPoint } from "./mapFile";
 
 type Props = {
   ws: Workspace;
@@ -15,6 +15,77 @@ type Props = {
   onClose: () => void;
   onSaved: () => void;
 };
+
+type Brush = { model: string | null; radius: number; density: number; min: number; max: number };
+
+/** Um carimbo do pincel: põe cópias novas no círculo (sem encostar demais nas que já existem) ou apaga as de todas as camadas */
+function paintScatter(list: ScatterLayer[], b: Brush, x: number, z: number, erase: boolean): ScatterLayer[] {
+  const r2 = b.radius * b.radius;
+  if (erase) {
+    let changed = false;
+    const out = list.map((l) => {
+      const pts = l.points.filter((p) => (p[0] - x) ** 2 + (p[1] - z) ** 2 > r2);
+      if (pts.length === l.points.length) return l;
+      changed = true;
+      return { ...l, points: pts };
+    });
+    return changed ? out : list;
+  }
+  if (!b.model) return list;
+  const id = b.model.split("/").pop()!.replace(/\.(glb|gltf)$/i, "");
+  const layer = list.find((l) => l.model === b.model) ?? { id, model: b.model, points: [] };
+  const gap2 = (0.8 / Math.sqrt(b.density)) ** 2; // distância mínima entre cópias da mesma camada
+  const near = layer.points.filter((p) => (p[0] - x) ** 2 + (p[1] - z) ** 2 < (b.radius + 1) ** 2);
+  const added: ScatterPoint[] = [];
+  const tries = Math.max(1, Math.round(b.density * Math.PI * r2 * 0.35));
+  const r3 = (v: number) => Math.round(v * 1000) / 1000;
+  for (let k = 0; k < tries; k++) {
+    const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * b.radius;
+    const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+    if ([...near, ...added].some((p) => (p[0] - px) ** 2 + (p[1] - pz) ** 2 < gap2)) continue;
+    added.push([r3(px), r3(pz), Math.round(Math.random() * 3600) / 10, r3(b.min + Math.random() * (b.max - b.min))]);
+  }
+  if (!added.length) return list;
+  const next = { ...layer, points: [...layer.points, ...added] };
+  return list.some((l) => l.model === b.model) ? list.map((l) => (l.model === b.model ? next : l)) : [...list, next];
+}
+
+function BrushPanel({ brush, setBrush, layers, clearLayer }: {
+  brush: Brush;
+  setBrush: (b: Brush) => void;
+  layers: ScatterLayer[];
+  clearLayer: (id: string) => void;
+}) {
+  const num = (key: "radius" | "density" | "min" | "max", label: string, step: number) => (
+    <label>
+      {label}
+      <input type="number" step={step} min={step} value={brush[key]} onChange={(e) => setBrush({ ...brush, [key]: Math.max(step, Number(e.target.value)) })} />
+    </label>
+  );
+  return (
+    <>
+      <h3>Pincel</h3>
+      <div className="muted">{brush.model ? modelName(brush.model) : "escolha um modelo na paleta"}</div>
+      <div className="fields">
+        {num("radius", "Raio (m)", 0.1)}
+        {num("density", "Densidade (por m²)", 0.1)}
+        {num("min", "Tamanho mín.", 0.05)}
+        {num("max", "Tamanho máx.", 0.05)}
+      </div>
+      <div className="muted small brush-help">Arraste no chão para espalhar. Shift + arrastar apaga (todas as camadas). Ctrl+Z desfaz o traço.</div>
+      <div className="locked-list">
+        <h4>Camadas espalhadas</h4>
+        {layers.map((l) => (
+          <div key={l.id} className="layer-row">
+            <button className="link" onClick={() => setBrush({ ...brush, model: l.model })}>{l.id} ({l.points.length})</button>
+            <button className="link" onClick={() => clearLayer(l.id)} title="Apaga todas as cópias desta camada">apagar</button>
+          </div>
+        ))}
+        {!layers.length && <div className="muted small">Nenhuma ainda.</div>}
+      </div>
+    </>
+  );
+}
 
 /** Ângulo em graus entre 0 e 360, com duas casas */
 const normDeg = (d: number) => Math.round((((d % 360) + 360) % 360) * 100) / 100;
@@ -37,6 +108,11 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   const [mode, setMode] = useState<GizmoMode>("translate");
   // escondidos só nesta sessão do editor (não vão para o arquivo nem para o jogo)
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  // pincel: espalha cópias do modelo escolhido (grama, flores, pedrinhas); Shift + arrastar apaga
+  const [brushOn, setBrushOn] = useState(false);
+  const [brush, setBrush] = useState<Brush>({ model: null, radius: 1.5, density: 1.5, min: 0.85, max: 1.15 });
+  const brushRef = useRef(brush);
+  brushRef.current = brush;
   const [folder, setFolder] = useState<string>("");
   const [filter, setFilter] = useState("");
   const [message, setMessage] = useState<string>("");
@@ -90,6 +166,20 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         change((m) => ({ ...m, instances: [...m.instances, inst] }));
       },
       onPick: (id) => setSelected(id),
+      // um traço do pincel inteiro vira um passo só do Ctrl+Z
+      onBrushStart: () => {
+        historyRef.current = [...historyRef.current.slice(-99), mapRef.current];
+        setHistory(historyRef.current);
+      },
+      onPaint: (x, z, erase) => {
+        const m = mapRef.current;
+        const scatter = paintScatter(m.scatter, brushRef.current, x, z, erase);
+        if (scatter !== m.scatter) {
+          setMapNow({ ...m, scatter });
+          setDirty(true);
+        }
+      },
+      onBrushEnd: () => undefined,
       onMove: (id, pos, rotY) =>
         change((m) => ({ ...m, instances: m.instances.map((i) => (i.id === id ? { ...i, pos: roundPos(pos), rotY: normDeg(rotY) } : i)) })),
     });
@@ -104,6 +194,14 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   useEffect(() => sceneRef.current?.setInstances(map.instances), [map.instances]);
   useEffect(() => sceneRef.current?.setSelected(selected), [selected]);
   useEffect(() => sceneRef.current?.setHidden(hidden), [hidden, map.instances]);
+  useEffect(() => sceneRef.current?.setScatter(map.scatter), [map.scatter]);
+  useEffect(() => sceneRef.current?.setBrush(brushOn ? brush.radius : 0), [brushOn, brush.radius]);
+  useEffect(() => {
+    if (brushOn) {
+      setPlacing(null);
+      setSelected(null);
+    }
+  }, [brushOn]);
   useEffect(() => void sceneRef.current?.setGhost(placing, placeRot), [placing, placeRot]);
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -172,8 +270,9 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
       if (e.ctrlKey && e.key.toLowerCase() === "d" && k.sel) { e.preventDefault(); duplicate(k.sel); return; }
       if (e.ctrlKey) return;
       const key = e.key.toLowerCase();
-      if (key === "w") setMode("translate");
-      if (key === "e") setMode("rotate");
+      if (key === "b") setBrushOn((v) => !v);
+      if (key === "w") { setBrushOn(false); setMode("translate"); }
+      if (key === "e") { setBrushOn(false); setMode("rotate"); }
       // R gira 90°; Q e T giram 15° (com Shift, 1°)
       const turn = key === "r" ? (e.shiftKey ? -90 : 90) : key === "q" ? (e.shiftKey ? -1 : -15) : key === "t" ? (e.shiftKey ? 1 : 15) : 0;
       if (turn) {
@@ -187,7 +286,7 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         update(k.sel.id, { pos: roundPos([k.sel.pos[0], k.sel.pos[1] + dy, k.sel.pos[2]]) });
       }
       if ((e.key === "Delete" || e.key === "Backspace") && k.sel) remove(k.sel.id);
-      if (e.key === "Escape") { setPlacing(null); setSelected(null); }
+      if (e.key === "Escape") { setPlacing(null); setSelected(null); setBrushOn(false); }
       // H esconde a peça selecionada; Alt+H mostra tudo de novo
       if (key === "h" && e.altKey) setHidden(new Set());
       else if (key === "h" && k.sel) hide(k.sel.id);
@@ -226,10 +325,11 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
           </button>
         )}
         <div className="modes">
-          <button className={mode === "translate" ? "on" : ""} onClick={() => setMode("translate")} title="W: setas para mover; a verde sobe e desce">Mover (W)</button>
-          <button className={mode === "rotate" ? "on" : ""} onClick={() => setMode("rotate")} title="E: anel para girar em volta do eixo vertical">Girar (E)</button>
+          <button className={!brushOn && mode === "translate" ? "on" : ""} onClick={() => { setBrushOn(false); setMode("translate"); }} title="W: setas para mover; a verde sobe e desce">Mover (W)</button>
+          <button className={!brushOn && mode === "rotate" ? "on" : ""} onClick={() => { setBrushOn(false); setMode("rotate"); }} title="E: anel para girar em volta do eixo vertical">Girar (E)</button>
+          <button className={brushOn ? "on" : ""} onClick={() => setBrushOn(true)} title="B: espalha cópias (grama, flores, pedrinhas); Shift + arrastar apaga">Pincel (B)</button>
         </div>
-        <span className="muted">{map.instances.length} objetos</span>
+        <span className="muted">{map.instances.length} objetos · {map.scatter.reduce((s, l) => s + l.points.length, 0)} espalhados</span>
         <span className="spacer" />
         <span className="muted msg">{message}</span>
         <button onClick={undo} disabled={!history.length} title="Ctrl+Z">Desfazer</button>
@@ -247,8 +347,11 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
               key={m.abs}
               model={m}
               small
-              active={placing === m.rel}
-              onClick={() => { setPlacing(placing === m.rel ? null : m.rel); setSelected(null); }}
+              active={brushOn ? brush.model === m.rel : placing === m.rel}
+              onClick={() => {
+                if (brushOn) setBrush({ ...brush, model: m.rel });
+                else { setPlacing(placing === m.rel ? null : m.rel); setSelected(null); }
+              }}
             />
           ))}
         </div>
@@ -256,7 +359,11 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
       <div className="editor-view">
         <div className="editor-canvas" ref={host} />
         <div className="help">
-          {placing
+          {brushOn
+            ? brush.model
+              ? `Pincel com ${modelName(brush.model)}: arraste no chão para espalhar · Shift + arrastar apaga · Esc para sair`
+              : "Pincel: escolha na paleta o que espalhar (ex.: grass_a, flower_w, pebble_a) · Shift + arrastar apaga"
+            : placing
             ? `Colocando ${modelName(placing)}: clique no chão · R gira (${placeRot}°) · Esc para parar`
             : sel
               ? "W mover (seta verde sobe/desce) · E girar · R 90° · Q/T 15° · Page Up/Down altura · H esconde · Delete apaga · Ctrl+D duplica"
@@ -264,7 +371,10 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         </div>
       </div>
       <section className="inspector">
-        {sel ? (
+        {brushOn ? (
+          <BrushPanel brush={brush} setBrush={setBrush} layers={map.scatter}
+            clearLayer={(id) => change((m) => ({ ...m, scatter: m.scatter.filter((l) => l.id !== id) }))} />
+        ) : sel ? (
           <>
             <h3 title={sel.model}>{modelName(sel.model)}</h3>
             <div className="muted">{sel.model}</div>

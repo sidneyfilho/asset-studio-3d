@@ -1,7 +1,7 @@
 // Janela do "Sincronizar com o Godot": primeiro mostra o que vai mudar, depois aplica e manda o Godot importar.
 import { useEffect, useState } from "react";
 import { godotImport, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
-import { parseMap, toTscn } from "./map/mapFile";
+import { parseMap, toTscn, SCATTER_SCRIPT, SCATTER_SCRIPT_NAME } from "./map/mapFile";
 import type { Workspace } from "./workspace";
 
 type Props = { ws: Workspace; maps: ModelEntry[]; godotExe: string; onClose: () => void };
@@ -32,10 +32,11 @@ export default function SyncDialog({ ws, maps, godotExe, onClose }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        const scenes = [];
+        // script das camadas espalhadas (grama, flores...): vai junto com as cenas dos mapas
+        const scenes = [{ name: SCATTER_SCRIPT_NAME, content: SCATTER_SCRIPT }];
         for (const m of maps) {
           const data = parseMap(await readText(m.abs));
-          scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".tscn"), content: toTscn(data, ws.resPrefix) });
+          scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".tscn"), content: toTscn(data, ws.resPrefix, ws.mapsRes + SCATTER_SCRIPT_NAME) });
         }
         const r: SyncRequest = {
           godot_project: ws.godot,

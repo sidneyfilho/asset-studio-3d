@@ -5,8 +5,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { addLights } from "../three/loadModel";
-import { instanceModel } from "../three/modelCache";
-import type { MapInstance } from "./mapFile";
+import { getModel, instanceModel } from "../three/modelCache";
+import type { MapInstance, ScatterLayer } from "./mapFile";
 
 export type Snap = "cell" | "half" | "free";
 
@@ -14,6 +14,10 @@ type Callbacks = {
   onPlace: (pos: [number, number, number]) => void;
   onPick: (id: string | null) => void;
   onMove: (id: string, pos: [number, number, number], rotY: number) => void;
+  /** pincel: começo do traço, cada "carimbo" (x, z no chão; erase = apagar) e fim do traço */
+  onBrushStart: () => void;
+  onPaint: (x: number, z: number, erase: boolean) => void;
+  onBrushEnd: () => void;
 };
 
 export type GizmoMode = "translate" | "rotate";
@@ -40,6 +44,13 @@ export class MapScene {
   private downAt: { x: number; y: number } | null = null;
   private dragStart = new THREE.Vector3();
   private ro: ResizeObserver;
+  // camadas espalhadas: uma InstancedMesh por malha do modelo (desenha milhares de cópias de uma vez)
+  private layers = new Map<string, { points: unknown; group: THREE.Group; token: number }>();
+  // pincel
+  private brushRadius = 0;
+  private ring: THREE.Mesh;
+  private painting = false;
+  private lastStamp: THREE.Vector3 | null = null;
   snap: Snap = "cell";
   cell = 2;
 
@@ -59,6 +70,13 @@ export class MapScene {
     this.scene.add(this.grid);
     this.selBox.visible = false;
     this.scene.add(this.selBox);
+    this.ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.94, 1, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8, depthTest: false }),
+    );
+    this.ring.visible = false;
+    this.ring.renderOrder = 10;
+    this.scene.add(this.ring);
 
     // câmera como a do jogo: 30° de elevação e 30° de giro; botão direito gira, do meio arrasta, roda dá zoom
     const a = THREE.MathUtils.degToRad(30), d = 40;
@@ -159,6 +177,16 @@ export class MapScene {
   }
 
   private onPointerMove = (e: PointerEvent) => {
+    if (this.brushRadius > 0) {
+      const p = this.groundPoint(e);
+      this.ring.visible = Boolean(p);
+      if (p) {
+        this.ring.position.set(p.x, 0.03, p.z);
+        // novo carimbo quando o mouse andou um pedaço do raio
+        if (this.painting && (!this.lastStamp || this.lastStamp.distanceTo(p) > this.brushRadius * 0.35)) this.stamp(p, e.shiftKey);
+      }
+      return;
+    }
     if (!this.ghost) return;
     const p = this.groundPoint(e);
     if (p) {
@@ -169,11 +197,39 @@ export class MapScene {
   };
 
   private onPointerDown = (e: PointerEvent) => {
+    if (this.brushRadius > 0 && e.button === 0) {
+      const p = this.groundPoint(e);
+      if (!p) return;
+      this.painting = true;
+      this.orbit.enabled = false;
+      this.cb.onBrushStart();
+      this.stamp(p, e.shiftKey);
+      return;
+    }
     this.downAt = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
   };
 
+  private stamp(p: THREE.Vector3, erase: boolean) {
+    this.lastStamp = p.clone();
+    this.cb.onPaint(p.x, p.z, erase);
+  }
+
+  /** Liga o pincel (raio em metros) ou desliga (0) */
+  setBrush(radius: number) {
+    this.brushRadius = radius;
+    this.ring.scale.setScalar(Math.max(radius, 0.01));
+    if (!radius) this.ring.visible = false;
+  }
+
   // clique = apertar e soltar sem arrastar; arrastar a seta de mover não conta como clique
   private onPointerUp = (e: PointerEvent) => {
+    if (this.painting) {
+      this.painting = false;
+      this.lastStamp = null;
+      this.orbit.enabled = true;
+      this.cb.onBrushEnd();
+      return;
+    }
     const d = this.downAt;
     this.downAt = null;
     if (!d || e.button !== 0 || this.dragging || this.gizmo.axis) return;
@@ -276,6 +332,51 @@ export class MapScene {
       if (token === this.ghostToken) g.add(m);
     } catch {
       // modelo com erro: o fantasma fica vazio
+    }
+  }
+
+  /** Deixa as camadas espalhadas iguais às do mapa (refaz só a camada cujos pontos mudaram) */
+  setScatter(list: ScatterLayer[]) {
+    const keep = new Set(list.map((l) => l.id));
+    for (const [id, l] of this.layers) {
+      if (!keep.has(id)) {
+        this.scene.remove(l.group);
+        this.layers.delete(id);
+      }
+    }
+    for (const l of list) {
+      let cur = this.layers.get(l.id);
+      if (cur && cur.points === l.points) continue;
+      if (!cur) {
+        cur = { points: null, group: new THREE.Group(), token: 0 };
+        this.scene.add(cur.group);
+        this.layers.set(l.id, cur);
+      }
+      cur.points = l.points;
+      const token = ++cur.token;
+      const entry = cur;
+      getModel(this.absOf(l.model)).then((model) => {
+        if (token !== entry.token) return;
+        model.updateMatrixWorld(true);
+        const g = new THREE.Group();
+        const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pos = new THREE.Vector3();
+        const up = new THREE.Vector3(0, 1, 0);
+        model.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const im = new THREE.InstancedMesh(mesh.geometry, mesh.material, Math.max(1, l.points.length));
+          im.count = l.points.length;
+          l.points.forEach(([x, z, rot, sc], k) => {
+            m.compose(pos.set(x, 0, z), q.setFromAxisAngle(up, THREE.MathUtils.degToRad(rot)), s.setScalar(sc));
+            im.setMatrixAt(k, m.multiply(mesh.matrixWorld));
+          });
+          im.instanceMatrix.needsUpdate = true;
+          im.computeBoundingSphere();
+          g.add(im);
+        });
+        entry.group.clear();
+        entry.group.add(g);
+      }).catch(() => undefined);
     }
   }
 

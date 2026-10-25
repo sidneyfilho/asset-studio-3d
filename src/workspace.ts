@@ -53,6 +53,8 @@ export type Workspace = {
   godotMaps: string;
   /** prefixo res:// dos modelos no Godot (ex.: res://assets/items/) */
   resPrefix: string;
+  /** prefixo res:// da pasta dos mapas no Godot (ex.: res://maps/) */
+  mapsRes: string;
 };
 
 export function resolveWorkspace(root: string, config: WsConfig): Workspace {
@@ -67,6 +69,7 @@ export function resolveWorkspace(root: string, config: WsConfig): Workspace {
     godotAssets: joinPath(godot, config.godotAssetsDir),
     godotMaps: joinPath(godot, config.godotMapsDir),
     resPrefix: `res://${clean(config.godotAssetsDir)}/`,
+    mapsRes: `res://${clean(config.godotMapsDir)}/`,
   };
 }
 

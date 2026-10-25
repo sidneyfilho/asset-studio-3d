@@ -42,6 +42,10 @@ Na barra lateral, **Mapas** lista os mapas de `map/`; "+ Novo mapa" cria um.
   **Q**/**T** giram 15° (com Shift, 1°), **Page Up/Page Down** sobem e descem 10 cm (com Shift, 1 cm).
   Ao arrastar com encaixe, a peça anda em passos a partir de onde estava (não é puxada para o centro da célula).
   **Delete** apaga, **Ctrl+D** duplica.
+- **Pincel (B)**: escolha na paleta o que espalhar (ex.: `grass_a`, `flower_w`, `pebble_a`) e arraste no chão. **Shift + arrastar**
+  apaga (de todas as camadas). Raio, densidade e tamanho mínimo/máximo ficam à direita; Ctrl+Z desfaz o traço inteiro.
+  As cópias ficam em camadas (`scatter` no `.map.json`: x, z, giro, escala) e no Godot viram MultiMesh (o `scatter.gd`,
+  gravado pela sincronização na pasta dos mapas, desenha todas de uma vez).
 - **Ver dentro** (barra de cima) esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra.
   **H** (ou o botão Esconder) esconde a peça selecionada; **Alt+H** mostra tudo. Isso vale só no editor: nada some do mapa.
   À direita dá para digitar posição, giro e escala, e **travar** o objeto (ex.: a base do mapa), que aí não é mais
