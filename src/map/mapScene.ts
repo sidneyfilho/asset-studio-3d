@@ -28,7 +28,7 @@ export class MapScene {
   private grid: THREE.GridHelper;
   private ray = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
-  private objects = new Map<string, { group: THREE.Group; model: string }>();
+  private objects = new Map<string, { group: THREE.Group; model: string; locked: boolean }>();
   private ghost: THREE.Group | null = null;
   private ghostModel = "";
   private ghostToken = 0;
@@ -64,6 +64,7 @@ export class MapScene {
     this.orbit.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     this.orbit.maxPolarAngle = THREE.MathUtils.degToRad(85);
     this.orbit.enableDamping = true;
+    this.orbit.update();
 
     // seta de mover: só no plano do chão (x e z)
     this.gizmo = new TransformControls(this.cam, this.renderer.domElement);
@@ -131,6 +132,8 @@ export class MapScene {
   private groundPoint(e: PointerEvent): THREE.Vector3 | null {
     const r = this.renderer.domElement.getBoundingClientRect();
     this.mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    // garante a câmera atualizada mesmo se ainda não houve um quadro desenhado
+    this.cam.updateMatrixWorld();
     this.ray.setFromCamera(this.mouse, this.cam);
     const hit = this.ray.intersectObject(this.ground)[0];
     return hit ? hit.point : null;
@@ -168,7 +171,7 @@ export class MapScene {
   };
 
   private pick(e: PointerEvent): string | null {
-    const groups = [...this.objects.values()].map((o) => o.group);
+    const groups = [...this.objects.values()].filter((o) => !o.locked).map((o) => o.group);
     this.groundPoint(e); // atualiza o raio
     for (const hit of this.ray.intersectObjects(groups, true)) {
       let o: THREE.Object3D | null = hit.object;
@@ -195,7 +198,7 @@ export class MapScene {
         const group = new THREE.Group();
         group.userData.instId = i.id;
         this.scene.add(group);
-        o = { group, model: i.model };
+        o = { group, model: i.model, locked: false };
         this.objects.set(i.id, o);
         instanceModel(this.absOf(i.model))
           .then((m) => {
@@ -204,6 +207,7 @@ export class MapScene {
           })
           .catch(() => group.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true }))));
       }
+      o.locked = Boolean(i.locked);
       if (this.gizmo.object !== o.group || !this.dragging) {
         o.group.position.set(...i.pos);
         o.group.rotation.y = THREE.MathUtils.degToRad(i.rotY);
@@ -217,7 +221,8 @@ export class MapScene {
     this.selected = id;
     const g = id ? this.objects.get(id)?.group : undefined;
     if (g) {
-      this.gizmo.attach(g);
+      if (this.objects.get(id!)!.locked) this.gizmo.detach();
+      else this.gizmo.attach(g);
       this.selBox.setFromObject(g);
       this.selBox.visible = true;
     } else {

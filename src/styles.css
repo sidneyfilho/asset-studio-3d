@@ -37,6 +37,22 @@ header { grid-area: head; display: flex; align-items: center; gap: 14px; padding
 header .spacer { flex: 1; }
 aside { grid-area: aside; overflow: auto; border-right: 1px solid var(--line); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
 aside h4 { margin: 10px 8px 4px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.small { font-size: 12px; }
+code { background: #17191c; padding: 1px 5px; border-radius: 4px; }
+
+/* janelas (sincronizar, configurar) */
+.modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); display: grid; place-items: center; z-index: 10; }
+.modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; }
+.modal h3 { margin: 0 0 6px; }
+.modal h4 { margin: 16px 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.modal.config label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.modal .row { display: flex; gap: 6px; }
+.modal .row input { flex: 1; }
+.sync-list ul { margin: 0; padding-left: 18px; max-height: 160px; overflow: auto; font-size: 12px; }
+.sync-list h4 { margin: 12px 0 4px; }
+pre.log { background: #17191c; padding: 8px; border-radius: 6px; font-size: 11px; max-height: 180px; overflow: auto; white-space: pre-wrap; }
+
 button.new-map { margin: 4px 0 6px; text-align: left; color: var(--accent); }
 
 /* editor de mapa: barra no topo, paleta à esquerda, vista 3D no meio, objeto selecionado à direita */
@@ -55,6 +71,10 @@ button.card.small .name { font-size: 11px; }
 .inspector .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
 .inspector label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
 .inspector input { width: 100%; }
+.inspector label.check { flex-direction: row; align-items: flex-start; gap: 6px; margin-top: 14px; }
+.inspector label.check input { width: auto; }
+.locked-list { margin-top: 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.locked-list h4 { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
 .inspector .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
 .folder { display: flex; align-items: center; border-radius: 6px; }
 .folder.active { background: var(--panel); color: var(--accent); }

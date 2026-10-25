@@ -1,6 +1,8 @@
 // Comandos do Alvorland Studio chamados pela interface (React).
-// A interface lê os arquivos do projeto pelo protocolo "asset" do Tauri; aqui ficam só
-// as operações de disco: abrir um projeto Godot, listar modelos e guardar miniaturas.
+// A interface lê os arquivos pelo protocolo "asset" do Tauri; aqui ficam só as operações de disco:
+// ler o projeto Godot, listar modelos e mapas da pasta de origem, guardar miniaturas e sincronizar (sync.rs).
+mod sync;
+
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -53,6 +55,11 @@ fn open_project(path: String) -> Result<ProjectInfo, String> {
         }
     }
     Ok(ProjectInfo { path, name, features })
+}
+
+#[tauri::command]
+fn path_exists(path: String) -> bool {
+    Path::new(&path).exists()
 }
 
 /// Procura todos os .glb/.gltf do projeto. Pastas que começam com "." e as da lista `ignore` são puladas.
@@ -150,7 +157,18 @@ fn save_thumb(app: tauri::AppHandle, abs: String, mtime: u64, png: Vec<u8>) -> R
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_project, list_models, list_maps, read_text, write_text, get_thumb, save_thumb])
+        .invoke_handler(tauri::generate_handler![
+            open_project,
+            path_exists,
+            list_models,
+            list_maps,
+            read_text,
+            write_text,
+            get_thumb,
+            save_thumb,
+            sync::sync_godot,
+            sync::godot_import
+        ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Alvorland Studio");
 }

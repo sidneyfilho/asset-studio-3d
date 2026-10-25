@@ -1,14 +1,14 @@
 // Editor de mapa: paleta de modelos à esquerda, vista 3D no meio, dados do objeto selecionado à direita.
 // Clique num modelo da paleta e clique no chão para colocar; clique num objeto para selecionar e arrastar.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { readText, writeText, type ModelEntry, type ProjectInfo } from "../api";
+import { pathExists, readText, writeText, type ModelEntry } from "../api";
 import Card, { modelName } from "../Card";
+import { joinPath, type Workspace } from "../workspace";
 import { MapScene, type Snap } from "./mapScene";
-import { newId, newMap, parseMap, serializeMap, toTscn, type MapData, type MapInstance } from "./mapFile";
+import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance } from "./mapFile";
 
 type Props = {
-  project: ProjectInfo;
+  ws: Workspace;
   models: ModelEntry[];
   /** caminho do .map.json aberto; null = mapa novo */
   file: string | null;
@@ -18,7 +18,7 @@ type Props = {
 
 const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
 
-export default function MapEditor({ project, models, file, onClose, onSaved }: Props) {
+export default function MapEditor({ ws, models, file, onClose, onSaved }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<MapScene | null>(null);
   const [map, setMap] = useState<MapData>(() => newMap("mapa_novo"));
@@ -33,7 +33,7 @@ export default function MapEditor({ project, models, file, onClose, onSaved }: P
   const [filter, setFilter] = useState("");
   const [message, setMessage] = useState<string>("");
 
-  const absOf = useCallback((rel: string) => project.path + "\\" + rel.replace(/\//g, "\\"), [project.path]);
+  const absOf = useCallback((rel: string) => joinPath(ws.assets, rel), [ws.assets]);
 
   // mapRef sempre tem o mapa atual, assim as mudanças vindas do mouse não usam um estado velho
   const mapRef = useRef(map);
@@ -100,6 +100,7 @@ export default function MapEditor({ project, models, file, onClose, onSaved }: P
   }, [snap]);
 
   const sel = map.instances.find((i) => i.id === selected) ?? null;
+  const locked = map.instances.filter((i) => i.locked);
   const update = (id: string, patch: Partial<MapInstance>) =>
     change((m) => ({ ...m, instances: m.instances.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
   const remove = (id: string) => {
@@ -112,25 +113,19 @@ export default function MapEditor({ project, models, file, onClose, onSaved }: P
     setSelected(copy.id);
   };
 
+  // o mapa é gravado na pasta de mapas da origem com o nome dele; a cena do Godot só sai ao sincronizar
   async function doSave() {
     let p = path;
     if (!p) {
-      const chosen = await save({
-        title: "Salvar mapa",
-        defaultPath: `${project.path}\\maps\\${map.name}.map.json`,
-        filters: [{ name: "Mapa do Alvorland Studio", extensions: ["json"] }],
-      });
-      if (!chosen) return;
-      p = /\.map\.json$/i.test(chosen) ? chosen : chosen.replace(/(\.json)?$/i, ".map.json");
+      const name = map.name.trim().replace(/[^A-Za-z0-9_-]/g, "_") || "mapa";
+      p = joinPath(ws.maps, `${name}.map.json`);
+      if ((await pathExists(p)) && !confirm(`Já existe um mapa chamado ${name}. Substituir?`)) return;
     }
     try {
-      const tscn = p.replace(/\.map\.json$/i, ".tscn");
       await writeText(p, serializeMap(map));
-      await writeText(tscn, toTscn(map));
       setPath(p);
       setDirty(false);
-      const inProject = tscn.toLowerCase().startsWith(project.path.toLowerCase());
-      setMessage(inProject ? `Salvo. Cena do Godot: res://${tscn.slice(project.path.length + 1).replace(/\\/g, "/")}` : `Salvo em ${tscn} (fora do projeto)`);
+      setMessage("Salvo. Use Sincronizar na tela inicial para mandar ao Godot.");
       onSaved();
     } catch (e) {
       setMessage(String(e));
@@ -250,9 +245,23 @@ export default function MapEditor({ project, models, file, onClose, onSaved }: P
               <button onClick={() => duplicate(sel)} title="Ctrl+D">Duplicar</button>
               <button onClick={() => remove(sel.id)} title="Delete">Apagar</button>
             </div>
+            <label className="check">
+              <input type="checkbox" checked={Boolean(sel.locked)} onChange={(e) => update(sel.id, { locked: e.target.checked })} />
+              Travado (não seleciona clicando na vista; bom para a base do mapa)
+            </label>
           </>
         ) : (
           <div className="muted">Nenhum objeto selecionado.</div>
+        )}
+        {locked.length > 0 && (
+          <div className="locked-list">
+            <h4>Travados</h4>
+            {locked.map((i) => (
+              <button key={i.id} className="link" onClick={() => { setPlacing(null); setSelected(i.id); }}>
+                {modelName(i.model)}
+              </button>
+            ))}
+          </div>
         )}
       </section>
     </div>

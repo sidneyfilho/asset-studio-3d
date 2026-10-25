@@ -1,16 +1,18 @@
 // Formato do mapa da ferramenta (.map.json) e a exportação para cena do Godot (.tscn).
-// O .map.json é o "arquivo de trabalho" (a ferramenta abre e edita); o .tscn é gerado a cada salvar
-// e é o que o jogo usa. Cada objeto vira um nó que instancia o .glb, com posição, giro e escala.
+// O .map.json fica na pasta de origem (doc-alvorland/map) e é o que a ferramenta abre e edita; o .tscn
+// é gerado no Godot ao sincronizar e é o que o jogo usa. Cada objeto vira um nó que instancia o .glb.
 
 export type MapInstance = {
   id: string;
-  /** caminho do modelo relativo ao projeto (ex.: assets/nature/tree_oak.glb) */
+  /** caminho do modelo relativo à pasta de modelos da origem (ex.: nature/tree_oak.glb) */
   model: string;
   /** posição em metros (x, y, z do Godot: y para cima) */
   pos: [number, number, number];
   /** giro em torno do eixo vertical, em graus */
   rotY: number;
   scale: number;
+  /** travado: não dá para selecionar nem mover clicando (ex.: a base do mapa) */
+  locked?: boolean;
 };
 
 export type MapData = {
@@ -46,11 +48,11 @@ const nodeName = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "_") || "Node";
  * Gera a cena do Godot. O Godot grava a base (Basis) do Transform3D linha por linha, e a rotação em torno de Y
  * tem as linhas [cos, 0, sin], [0, 1, 0], [-sin, 0, cos] — a mesma convenção do three.js.
  */
-export function toTscn(m: MapData): string {
+export function toTscn(m: MapData, resPrefix: string): string {
   const models = [...new Set(m.instances.map((i) => i.model))];
   const idOf = new Map(models.map((p, k) => [p, String(k + 1)]));
   const out: string[] = ["[gd_scene format=3]", ""];
-  for (const p of models) out.push(`[ext_resource type="PackedScene" path="res://${p}" id="${idOf.get(p)}"]`);
+  for (const p of models) out.push(`[ext_resource type="PackedScene" path="${resPrefix}${p}" id="${idOf.get(p)}"]`);
   if (models.length) out.push("");
   out.push(`[node name="${nodeName(m.name)}" type="Node3D"]`, "");
   const used = new Map<string, number>();

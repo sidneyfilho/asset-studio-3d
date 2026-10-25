@@ -1,17 +1,21 @@
-// Tela principal: escolher o projeto Godot, navegar pelas pastas de modelos, ver cada um em 3D e abrir os mapas.
+// Tela principal: abrir a pasta de origem (ex.: doc-alvorland), navegar pelos modelos, ver cada um em 3D,
+// abrir os mapas e sincronizar tudo com o projeto Godot.
 import { useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openProject, listModels, listMaps, type ProjectInfo, type ModelEntry } from "./api";
+import { loadConfig, resolveWorkspace, saveConfig, type Workspace, type WsConfig } from "./workspace";
 import Card from "./Card";
 import Viewer from "./Viewer";
 import MapEditor from "./map/MapEditor";
+import SyncDialog from "./SyncDialog";
+import ConfigDialog from "./ConfigDialog";
 
-const RECENT_KEY = "recentProjects";
-const IGNORE_KEY = "ignoredFolders";
-const DEFAULT_IGNORE = "backups, node_modules, addons";
-const HIDDEN_KEY = "mapFolders:";
+const RECENT_KEY = "recentSources";
+const HIDDEN_KEY = "hiddenFolders:";
+const EXE_KEY = "godotExe";
+const DEFAULT_EXE = "C:\\Program Files\\Godot_v4.7\\Godot_v4.7.2-stable_win64_console.exe";
 
-// localStorage só guarda preferências desta janela (projetos recentes, pastas ignoradas)
+// localStorage só guarda preferências desta janela (pastas recentes, executável do Godot)
 function readJson<T>(key: string, fallback: T): T {
   try {
     const v = localStorage.getItem(key);
@@ -28,16 +32,18 @@ function writeJson(key: string, value: unknown) {
   }
 }
 
-/** Pasta do modelo, relativa ao projeto (ex.: assets/nature) */
+/** Pasta do modelo, relativa à pasta de modelos (ex.: nature) */
 const folderOf = (rel: string) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".");
 
 /** mapa aberto no editor: null = nenhum; file null = mapa novo */
 type Editing = { file: string | null } | null;
 
 export default function App() {
-  const [project, setProject] = useState<ProjectInfo | null>(null);
+  const [ws, setWs] = useState<Workspace | null>(null);
+  const [godot, setGodot] = useState<ProjectInfo | null>(null);
+  const [godotError, setGodotError] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>(() => readJson(RECENT_KEY, []));
-  const [ignore, setIgnore] = useState<string>(() => readJson(IGNORE_KEY, DEFAULT_IGNORE));
+  const [godotExe, setGodotExe] = useState<string>(() => readJson(EXE_KEY, DEFAULT_EXE));
   const [models, setModels] = useState<ModelEntry[]>([]);
   const [maps, setMaps] = useState<ModelEntry[]>([]);
   const [folder, setFolder] = useState<string | null>(null);
@@ -46,30 +52,34 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<Editing>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [configuring, setConfiguring] = useState(false);
   // pastas que não são peças (ex.: cenas inteiras do Blender): ficam fora de "Todos" e da paleta do mapa
   const [hidden, setHidden] = useState<string[]>([]);
 
-  const ignoreList = () => ignore.split(",").map((s) => s.trim()).filter(Boolean);
-
   function toggleHidden(f: string) {
-    if (!project) return;
+    if (!ws) return;
     const next = hidden.includes(f) ? hidden.filter((x) => x !== f) : [...hidden, f];
     setHidden(next);
-    writeJson(HIDDEN_KEY + project.path, next);
+    writeJson(HIDDEN_KEY + ws.root, next);
   }
 
-  async function load(path: string) {
+  async function load(root: string, config?: WsConfig) {
     setError(null);
     setLoading(true);
     try {
-      const info = await openProject(path);
-      const [list, mapList] = await Promise.all([listModels(info.path, ignoreList()), listMaps(info.path, ignoreList())]);
-      setProject(info);
+      const w = resolveWorkspace(root, config ?? (await loadConfig(root)));
+      const [list, mapList] = await Promise.all([listModels(w.assets, []), listMaps(w.maps, [])]);
+      setWs(w);
       setModels(list);
       setMaps(mapList);
-      setHidden(readJson(HIDDEN_KEY + info.path, []));
+      setHidden(readJson(HIDDEN_KEY + root, []));
       setSelected((s) => (s && list.some((m) => m.abs === s.abs) ? s : null));
-      const r = [path, ...recent.filter((p) => p !== path)].slice(0, 8);
+      // o projeto Godot de destino pode ainda não estar configurado: a origem abre mesmo assim
+      openProject(w.godot)
+        .then((g) => { setGodot(g); setGodotError(null); })
+        .catch((e) => { setGodot(null); setGodotError(String(e)); });
+      const r = [root, ...recent.filter((p) => p !== root)].slice(0, 8);
       setRecent(r);
       writeJson(RECENT_KEY, r);
     } catch (e) {
@@ -80,12 +90,21 @@ export default function App() {
   }
 
   async function reloadMaps() {
-    if (project) setMaps(await listMaps(project.path, ignoreList()));
+    if (ws) setMaps(await listMaps(ws.maps, []));
   }
 
-  async function pickProject() {
-    const dir = await open({ directory: true, title: "Escolha a pasta do projeto Godot (com project.godot)" });
+  async function pickSource() {
+    const dir = await open({ directory: true, title: "Escolha a pasta de origem (ex.: doc-alvorland)" });
     if (typeof dir === "string") load(dir);
+  }
+
+  async function saveSettings(c: WsConfig, exe: string) {
+    if (!ws) return;
+    await saveConfig(ws.root, c);
+    setGodotExe(exe);
+    writeJson(EXE_KEY, exe);
+    setConfiguring(false);
+    load(ws.root, c);
   }
 
   // pastas com a contagem de modelos em cada uma
@@ -103,12 +122,15 @@ export default function App() {
     return base.filter((m) => !q || m.rel.toLowerCase().includes(q));
   }, [models, pieces, folder, filter]);
 
-  if (!project) {
+  if (!ws) {
     return (
       <div className="start">
         <h1>Alvorland Studio</h1>
-        <p className="muted">Gerencia os modelos 3D e os mapas de um projeto Godot.</p>
-        <button className="primary" onClick={pickProject} disabled={loading}>Abrir projeto…</button>
+        <p className="muted">
+          Abra a pasta de origem (ex.: doc-alvorland). Os modelos ficam em <code>assets</code> e os mapas em <code>map</code>;
+          o botão Sincronizar deixa o projeto Godot igual a ela.
+        </p>
+        <button className="primary" onClick={pickSource} disabled={loading}>Abrir pasta de origem…</button>
         {error && <div className="error">{error}</div>}
         {recent.length > 0 && (
           <div className="recent">
@@ -118,10 +140,6 @@ export default function App() {
             ))}
           </div>
         )}
-        <label className="ignore">
-          Pastas ignoradas (separadas por vírgula)
-          <input value={ignore} onChange={(e) => { setIgnore(e.target.value); writeJson(IGNORE_KEY, e.target.value); }} />
-        </label>
       </div>
     );
   }
@@ -130,10 +148,10 @@ export default function App() {
     return (
       <MapEditor
         key={editing.file ?? "novo"}
-        project={project}
+        ws={ws}
         models={pieces}
         file={editing.file}
-        onClose={() => setEditing(null)}
+        onClose={() => { setEditing(null); reloadMaps(); }}
         onSaved={reloadMaps}
       />
     );
@@ -159,19 +177,22 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <strong>{project.name}</strong>
-        <span className="muted">{project.path}</span>
-        <span className="muted">Godot {project.features.join(" · ")}</span>
+        <strong>{ws.root.split("\\").pop()}</strong>
+        <span className="muted" title={ws.godot}>
+          → {godot ? `Godot: ${godot.name}` : <span className="warn">projeto Godot não encontrado</span>}
+        </span>
         <span className="spacer" />
-        <button onClick={() => load(project.path)} title="Ler as pastas de novo">Recarregar</button>
-        <button onClick={() => { setProject(null); setFolder(null); setSelected(null); }}>Trocar projeto</button>
+        <button onClick={() => load(ws.root)} title="Ler as pastas de novo">Recarregar</button>
+        <button onClick={() => setConfiguring(true)}>Configurar</button>
+        <button className="primary" onClick={() => setSyncing(true)} disabled={!godot} title={godotError ?? ""}>Sincronizar com o Godot</button>
+        <button onClick={() => { setWs(null); setFolder(null); setSelected(null); }}>Trocar pasta</button>
       </header>
       <aside>
         <h4>Mapas</h4>
         {maps.map((m) => (
           <div key={m.abs} className="folder">
             <button className="folder-name" onClick={() => setEditing({ file: m.abs })} title={m.rel}>
-              {m.rel.split("/").pop()!.replace(/\.map\.json$/i, "")} <span>{folderOf(m.rel)}</span>
+              {m.rel.replace(/\.map\.json$/i, "")}
             </button>
           </div>
         ))}
@@ -192,12 +213,20 @@ export default function App() {
           {visible.map((m) => (
             <Card key={m.abs} model={m} active={selected?.abs === m.abs} onClick={() => setSelected(m)} />
           ))}
-          {visible.length === 0 && <div className="muted">Nenhum modelo aqui.</div>}
+          {visible.length === 0 && (
+            <div className="muted">
+              Nenhum modelo aqui. Coloque os arquivos .glb (e as texturas deles) em <code>{ws.assets}</code> e clique em Recarregar.
+            </div>
+          )}
         </div>
       </main>
       <section className="side">
         {selected ? <Viewer model={selected} /> : <div className="muted pad">Clique num modelo para ver em 3D.</div>}
       </section>
+      {syncing && <SyncDialog ws={ws} maps={maps} godotExe={godotExe} onClose={() => setSyncing(false)} />}
+      {configuring && (
+        <ConfigDialog root={ws.root} config={ws.config} godotExe={godotExe} onSave={saveSettings} onClose={() => setConfiguring(false)} />
+      )}
     </div>
   );
 }
