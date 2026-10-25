@@ -35,6 +35,8 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   const [placeRot, setPlaceRot] = useState(0);
   const [snap, setSnap] = useState<Snap>("cell");
   const [mode, setMode] = useState<GizmoMode>("translate");
+  // escondidos só nesta sessão do editor (não vão para o arquivo nem para o jogo)
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [folder, setFolder] = useState<string>("");
   const [filter, setFilter] = useState("");
   const [message, setMessage] = useState<string>("");
@@ -101,6 +103,7 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
 
   useEffect(() => sceneRef.current?.setInstances(map.instances), [map.instances]);
   useEffect(() => sceneRef.current?.setSelected(selected), [selected]);
+  useEffect(() => sceneRef.current?.setHidden(hidden), [hidden, map.instances]);
   useEffect(() => void sceneRef.current?.setGhost(placing, placeRot), [placing, placeRot]);
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -110,6 +113,21 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
 
   const sel = map.instances.find((i) => i.id === selected) ?? null;
   const locked = map.instances.filter((i) => i.locked);
+  const hiddenList = map.instances.filter((i) => hidden.has(i.id));
+  // peças que o jogo esconde quando a personagem entra (telhado e paredes da frente)
+  const isOuter = (i: MapInstance) => /(^|\/)(roof|front)[^/]*\.glb$/i.test(i.model);
+  const outer = map.instances.filter(isOuter);
+  const seeInside = outer.length > 0 && outer.every((i) => hidden.has(i.id));
+  const setHiddenIds = (ids: string[], hide: boolean) =>
+    setHidden((h) => {
+      const n = new Set(h);
+      for (const id of ids) hide ? n.add(id) : n.delete(id);
+      return n;
+    });
+  const hide = (id: string) => {
+    setHiddenIds([id], true);
+    setSelected(null);
+  };
   const update = (id: string, patch: Partial<MapInstance>) =>
     change((m) => ({ ...m, instances: m.instances.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
   const remove = (id: string) => {
@@ -142,7 +160,7 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   }
 
   // atalhos de teclado (fora das caixas de texto)
-  const keyState = { placing, sel, doSave, undo };
+  const keyState = { placing, sel, doSave, undo, hidden };
   const keyRef = useRef(keyState);
   keyRef.current = keyState;
   useEffect(() => {
@@ -170,6 +188,9 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
       }
       if ((e.key === "Delete" || e.key === "Backspace") && k.sel) remove(k.sel.id);
       if (e.key === "Escape") { setPlacing(null); setSelected(null); }
+      // H esconde a peça selecionada; Alt+H mostra tudo de novo
+      if (key === "h" && e.altKey) setHidden(new Set());
+      else if (key === "h" && k.sel) hide(k.sel.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -198,6 +219,12 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
             <option value="free">Livre</option>
           </select>
         </label>
+        {outer.length > 0 && (
+          <button className={seeInside ? "on toggle" : "toggle"} onClick={() => setHiddenIds(outer.map((i) => i.id), !seeInside)}
+            title="Esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra">
+            {seeInside ? "Ver por fora" : "Ver dentro"}
+          </button>
+        )}
         <div className="modes">
           <button className={mode === "translate" ? "on" : ""} onClick={() => setMode("translate")} title="W: setas para mover; a verde sobe e desce">Mover (W)</button>
           <button className={mode === "rotate" ? "on" : ""} onClick={() => setMode("rotate")} title="E: anel para girar em volta do eixo vertical">Girar (E)</button>
@@ -232,7 +259,7 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
           {placing
             ? `Colocando ${modelName(placing)}: clique no chão · R gira (${placeRot}°) · Esc para parar`
             : sel
-              ? "W mover (seta verde sobe/desce) · E girar · R 90° · Q/T 15° · Page Up/Down altura · Delete apaga · Ctrl+D duplica"
+              ? "W mover (seta verde sobe/desce) · E girar · R 90° · Q/T 15° · Page Up/Down altura · H esconde · Delete apaga · Ctrl+D duplica"
               : "Escolha um modelo na paleta · clique num objeto para selecionar · botão direito gira a vista · botão do meio arrasta · roda dá zoom"}
         </div>
       </div>
@@ -270,6 +297,7 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
               <button onClick={() => update(sel.id, { rotY: (sel.rotY + 90) % 360 })} title="R">Girar 90°</button>
               <button onClick={() => duplicate(sel)} title="Ctrl+D">Duplicar</button>
               <button onClick={() => remove(sel.id)} title="Delete">Apagar</button>
+              <button onClick={() => hide(sel.id)} title="H: esconde só no editor, para ver o que está atrás ou dentro">Esconder</button>
             </div>
             <label className="check">
               <input type="checkbox" checked={Boolean(sel.locked)} onChange={(e) => update(sel.id, { locked: e.target.checked })} />
@@ -278,6 +306,17 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
           </>
         ) : (
           <div className="muted">Nenhum objeto selecionado.</div>
+        )}
+        {hiddenList.length > 0 && (
+          <div className="locked-list">
+            <h4>Escondidos no editor</h4>
+            {hiddenList.map((i) => (
+              <button key={i.id} className="link" onClick={() => setHiddenIds([i.id], false)} title="Mostrar de novo">
+                {modelName(i.model)} (mostrar)
+              </button>
+            ))}
+            <button className="link" onClick={() => setHidden(new Set())}>Mostrar todos (Alt+H)</button>
+          </div>
         )}
         {locked.length > 0 && (
           <div className="locked-list">

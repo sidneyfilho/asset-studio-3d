@@ -105,3 +105,4 @@ button.card.active { border-color: var(--accent); }
 .editor .modes button:first-child { border-radius: 6px 0 0 6px; }
 .editor .modes button:last-child { border-radius: 0 6px 6px 0; }
 .editor .modes button.on { background: var(--accent); color: #1d1f23; border-color: var(--accent); }
+.editor button.toggle.on { background: var(--accent); color: #1d1f23; border-color: var(--accent); }

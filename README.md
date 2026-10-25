@@ -42,6 +42,8 @@ Na barra lateral, **Mapas** lista os mapas de `map/`; "+ Novo mapa" cria um.
   **Q**/**T** giram 15° (com Shift, 1°), **Page Up/Page Down** sobem e descem 10 cm (com Shift, 1 cm).
   Ao arrastar com encaixe, a peça anda em passos a partir de onde estava (não é puxada para o centro da célula).
   **Delete** apaga, **Ctrl+D** duplica.
+- **Ver dentro** (barra de cima) esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra.
+  **H** (ou o botão Esconder) esconde a peça selecionada; **Alt+H** mostra tudo. Isso vale só no editor: nada some do mapa.
   À direita dá para digitar posição, giro e escala, e **travar** o objeto (ex.: a base do mapa), que aí não é mais
   selecionado clicando na vista; os travados aparecem numa lista à direita para destravar.
 - **Ctrl+Z** desfaz, **Ctrl+S** salva (em `map/<nome>.map.json`).

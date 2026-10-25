@@ -190,7 +190,7 @@ export class MapScene {
   };
 
   private pick(e: PointerEvent): string | null {
-    const groups = [...this.objects.values()].filter((o) => !o.locked).map((o) => o.group);
+    const groups = [...this.objects.values()].filter((o) => !o.locked && o.group.visible).map((o) => o.group);
     this.groundPoint(e); // atualiza o raio
     for (const hit of this.ray.intersectObjects(groups, true)) {
       let o: THREE.Object3D | null = hit.object;
@@ -234,6 +234,11 @@ export class MapScene {
       }
     }
     this.setSelected(this.selected && keep.has(this.selected) ? this.selected : null);
+  }
+
+  /** Peças escondidas só no editor (para ver e editar dentro da casa); não somem do mapa */
+  setHidden(ids: Set<string>) {
+    for (const [id, o] of this.objects) o.group.visible = !ids.has(id);
   }
 
   setSelected(id: string | null) {
