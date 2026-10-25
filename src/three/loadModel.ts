@@ -6,7 +6,17 @@ import { fileUrl } from "../api";
 
 const manager = new THREE.LoadingManager();
 // caminhos do disco viram URL do protocolo asset; URLs de verdade (blob/data/http) passam direto
-manager.setURLModifier((url) => (/^(blob:|data:|https?:)/.test(url) ? url : fileUrl(url)));
+// (texturas compartilhadas vêm como "../tex/x.jpg": os ".." são resolvidos antes, para o caminho ficar limpo)
+manager.setURLModifier((url) => (/^(blob:|data:|https?:)/.test(url) ? url : fileUrl(normalizePath(decodeURI(url)))));
+
+function normalizePath(p: string): string {
+  const out: string[] = [];
+  for (const part of p.replace(/\\/g, "/").split("/")) {
+    if (part === "..") out.pop();
+    else if (part !== ".") out.push(part);
+  }
+  return out.join("/");
+}
 const loader = new GLTFLoader(manager);
 
 export async function loadModel(abs: string): Promise<GLTF> {

@@ -152,9 +152,21 @@ pub fn sync_godot(req: SyncRequest) -> Result<SyncReport, String> {
             fs::copy(&a, &b).map_err(|e| format!("Erro ao copiar {rel}: {e}"))?;
         }
     }
-    // 2) apaga do destino o que não existe mais na origem
+    // 2) apaga do destino o que não existe mais na origem. As texturas que o Godot tirou de um .glb que mudou também saem:
+    //    se o .glb novo ainda tiver a textura dentro, o Godot extrai de novo ao importar (evita sobrar textura velha)
+    let changed_models: HashSet<String> = rep
+        .copied
+        .iter()
+        .filter(|r| {
+            let l = r.to_lowercase();
+            l.ends_with(".glb") || l.ends_with(".gltf")
+        })
+        .cloned()
+        .collect();
     for rel in files(&dst) {
-        if keep.contains(&rel) || godot_generated(&rel, &keep) {
+        let own_import = rel.strip_suffix(".import").map(|b| keep.contains(b)).unwrap_or(false);
+        let stale = !keep.contains(&rel) && !own_import && godot_generated(&rel, &changed_models);
+        if !stale && (keep.contains(&rel) || godot_generated(&rel, &keep)) {
             continue;
         }
         rep.removed.push(rel.clone());
@@ -230,6 +242,9 @@ mod tests {
         write(&dst.join("kit/wall.glb.import"), "imp");
         write(&dst.join("kit/wall_tex_pedra.png"), "tex");
         write(&dst.join("kit/wall_tex_pedra.png.import"), "imp");
+        write(&src.join("kit/floor.glb"), "floor");
+        write(&dst.join("kit/floor.glb"), "floor");
+        write(&dst.join("kit/floor_tex_madeira.png"), "tex");
         write(&dst.join("kit/old.glb"), "old");
         write(&dst.join("kit/old.glb.import"), "imp");
         write(&dst.join("kit/old_tex.png"), "tex");
@@ -249,11 +264,11 @@ mod tests {
         let r = sync_godot(req(true)).unwrap();
         let mut removed = r.removed.clone();
         removed.sort();
-        assert_eq!(removed, vec!["gone/x.glb", "kit/old.glb", "kit/old.glb.import", "kit/old_tex.png"]);
+        // a textura extraída do wall.glb (que mudou) sai; a do floor.glb (igual) fica
+        assert_eq!(removed, vec!["gone/x.glb", "kit/old.glb", "kit/old.glb.import", "kit/old_tex.png", "kit/wall_tex_pedra.png", "kit/wall_tex_pedra.png.import"]);
         assert_eq!(fs::read_to_string(dst.join("kit/wall.glb")).unwrap(), "wall-v2");
         assert!(dst.join("kit/wall.glb.import").exists());
-        assert!(dst.join("kit/wall_tex_pedra.png").exists());
-        assert!(dst.join("kit/wall_tex_pedra.png.import").exists());
+        assert!(dst.join("kit/floor_tex_madeira.png").exists());
         assert!(!dst.join("gone").exists(), "pasta vazia sai");
         assert_eq!(r.maps_written, vec!["casa.tscn"]);
         assert_eq!(r.maps_removed, vec!["stale.tscn"]);
