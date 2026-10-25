@@ -87,6 +87,9 @@ function BrushPanel({ brush, setBrush, layers, clearLayer }: {
   );
 }
 
+/** Degrau máximo que a personagem sobe no jogo (STEP_H em scripts/main.gd) */
+const STEP_H = 0.35;
+
 /** Ângulo em graus entre 0 e 360, com duas casas */
 const normDeg = (d: number) => Math.round((((d % 360) + 360) % 360) * 100) / 100;
 /** Posição com precisão de milímetro (evita 0,30000000004 no arquivo) */
@@ -210,6 +213,17 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   }, [snap, mode]);
 
   const sel = map.instances.find((i) => i.id === selected) ?? null;
+  // colisão: destaca o que é sólido no jogo; e a altura do objeto selecionado (o modelo carrega depois, por isso o atraso)
+  const [showSolid, setShowSolid] = useState(false);
+  const solidPrefixes = ws.config.solidPrefixes ?? [];
+  useEffect(() => sceneRef.current?.setCollisionView(showSolid ? solidPrefixes : null), [showSolid, solidPrefixes.join(",")]);
+  const [selInfo, setSelInfo] = useState<{ top: number; base: number; solid: boolean } | null>(null);
+  useEffect(() => {
+    setSelInfo(null);
+    if (!selected) return;
+    const t = setTimeout(() => setSelInfo(sceneRef.current?.info(selected, solidPrefixes) ?? null), 400);
+    return () => clearTimeout(t);
+  }, [selected, sel?.pos[1], sel?.scale]);
   const locked = map.instances.filter((i) => i.locked);
   const hiddenList = map.instances.filter((i) => hidden.has(i.id));
   // peças que o jogo esconde quando a personagem entra (telhado e paredes da frente)
@@ -319,6 +333,12 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
           </select>
         </label>
         {outer.length > 0 && (
+          <button className={showSolid ? "on toggle" : "toggle"} onClick={() => setShowSolid(!showSolid)}
+            title="Mostra em vermelho as malhas que têm colisão no jogo (a personagem não atravessa; sobe degraus de até 35 cm)">
+            Colisão
+          </button>
+        )}
+        {outer.length > 0 && (
           <button className={seeInside ? "on toggle" : "toggle"} onClick={() => setHiddenIds(outer.map((i) => i.id), !seeInside)}
             title="Esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra">
             {seeInside ? "Ver por fora" : "Ver dentro"}
@@ -377,6 +397,12 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         ) : sel ? (
           <>
             <h3 title={sel.model}>{modelName(sel.model)}</h3>
+            {selInfo && (
+              <div className={selInfo.solid ? "solid-info yes" : "solid-info"}>
+                {selInfo.solid ? "Sólido no jogo" : "Sem colisão no jogo"} · topo a {selInfo.top.toFixed(2).replace(".", ",")} m do chão
+                {selInfo.solid ? ` (a personagem sobe degraus de até ${String(STEP_H).replace(".", ",")} m; ligue Colisão para ver o formato)` : ""}
+              </div>
+            )}
             <div className="muted">{sel.model}</div>
             <div className="fields">
               {(["X", "Y", "Z"] as const).map((axis, k) => (

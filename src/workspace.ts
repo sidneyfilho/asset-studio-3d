@@ -18,6 +18,8 @@ export type WsConfig = {
   godotMapsDir: string;
   /** subpastas de modelos que não são peças (ex.: cenas inteiras): ficam fora de "Todos" e da paleta do mapa */
   notPieces: string[];
+  /** malhas que o jogo deixa sólidas (o nome começa com um destes); o Studio só mostra, quem cria a colisão é o jogo */
+  solidPrefixes: string[];
 };
 
 export const DEFAULT_CONFIG: WsConfig = {
@@ -26,7 +28,8 @@ export const DEFAULT_CONFIG: WsConfig = {
   mapsDir: "map",
   godotAssetsDir: "assets",
   godotMapsDir: "maps",
-  notPieces: ["scenes"],
+  notPieces: [],
+  solidPrefixes: ["house", "porch", "garden", "interior", "front", "kennel"],
 };
 
 /** Junta caminhos e resolve "." e ".." (Windows, com "\") */

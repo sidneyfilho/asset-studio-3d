@@ -22,6 +22,10 @@ export default function Viewer({ model }: { model: ModelEntry }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [anim, setAnim] = useState<string>("");
+  // aramado: mostra os triângulos do modelo por cima dele
+  const [wire, setWire] = useState(false);
+  const wireRef = useRef<(on: boolean) => void>(() => {});
+  useEffect(() => wireRef.current(wire), [wire]);
   const playRef = useRef<(name: string) => void>(() => {});
 
   useEffect(() => {
@@ -65,6 +69,31 @@ export default function Viewer({ model }: { model: ModelEntry }) {
       .then((gltf) => {
         if (!alive) return disposeObject(gltf.scene);
         root = gltf.scene;
+        const r0 = root;
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.35 });
+        wireRef.current = (on) => {
+          const old: THREE.Object3D[] = [];
+          r0.traverse((o) => o.userData.wire && old.push(o));
+          for (const o of old) o.removeFromParent();
+          if (!on) return;
+          const meshes: THREE.Mesh[] = [];
+          r0.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
+          for (const m of meshes) {
+            // malha com esqueleto: o aramado usa o mesmo esqueleto, para acompanhar a animação
+            const sm = m as THREE.SkinnedMesh;
+            let w: THREE.Mesh;
+            if (sm.isSkinnedMesh) {
+              const ws = new THREE.SkinnedMesh(m.geometry, wireMat);
+              ws.bind(sm.skeleton, sm.bindMatrix);
+              w = ws;
+            } else {
+              w = new THREE.Mesh(m.geometry, wireMat);
+            }
+            w.userData.wire = true;
+            m.add(w);
+          }
+        };
+        wireRef.current(wire);
         scene.add(root);
         const box = new THREE.Box3().setFromObject(root);
         controls.target.copy(frameCamera(cam, box));
@@ -126,6 +155,10 @@ export default function Viewer({ model }: { model: ModelEntry }) {
               <tr><td>Triângulos</td><td>{stats.triangles.toLocaleString("pt-BR")}</td></tr>
               <tr><td>Malhas</td><td>{stats.meshes}</td></tr>
               <tr><td>Materiais</td><td>{stats.materials.join(", ")}</td></tr>
+              <tr>
+                <td>Malha</td>
+                <td><label className="inline"><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> ver triângulos (aramado)</label></td>
+              </tr>
               <tr><td>Arquivo</td><td>{(model.size / 1024).toFixed(0)} KB</td></tr>
               {stats.animations.length > 0 && (
                 <tr>

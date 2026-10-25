@@ -22,6 +22,12 @@ type Callbacks = {
 
 export type GizmoMode = "translate" | "rotate";
 
+/** Sólida no jogo se a malha (ou o nó acima dela dentro do modelo: malhas com vários materiais viram um grupo) tem o nome certo */
+function isSolid(o: THREE.Object3D, stop: THREE.Object3D, prefixes: string[]): boolean {
+  for (let n: THREE.Object3D | null = o; n && n !== stop; n = n.parent) if (prefixes.some((p) => n!.name.startsWith(p))) return true;
+  return false;
+}
+
 const GROUND = 400; // tamanho do chão desenhado, em metros
 
 export class MapScene {
@@ -278,6 +284,7 @@ export class MapScene {
         instanceModel(this.absOf(i.model))
           .then((m) => {
             group.add(m);
+            this.applyCollision(group);
             if (this.selected === i.id) this.selBox.setFromObject(group);
           })
           .catch(() => group.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xff00ff, wireframe: true }))));
@@ -378,6 +385,43 @@ export class MapScene {
         entry.group.add(g);
       }).catch(() => undefined);
     }
+  }
+
+  /** Mostra em vermelho (aramado) as malhas sólidas no jogo, pelo nome; desligado com prefixes = null */
+  setCollisionView(prefixes: string[] | null) {
+    this.solid = prefixes;
+    for (const o of this.objects.values()) this.applyCollision(o.group);
+  }
+
+  private solid: string[] | null = null;
+  private wireMat = new THREE.MeshBasicMaterial({ color: 0xff4a3a, wireframe: true, transparent: true, opacity: 0.55 });
+
+  private applyCollision(group: THREE.Object3D) {
+    const old: THREE.Object3D[] = [];
+    group.traverse((o) => o.userData.collisionWire && old.push(o));
+    for (const o of old) o.removeFromParent();
+    if (!this.solid) return;
+    const meshes: THREE.Mesh[] = [];
+    group.traverse((o) => (o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh));
+    for (const m of meshes) {
+      if (!isSolid(m, group, this.solid)) continue;
+      const w = new THREE.Mesh(m.geometry, this.wireMat);
+      w.userData.collisionWire = true;
+      w.raycast = () => undefined;   // o aramado não atrapalha o clique
+      m.add(w);
+    }
+  }
+
+  /** Altura do topo do objeto (m) e se ele tem alguma malha sólida no jogo */
+  info(id: string, prefixes: string[]): { top: number; base: number; solid: boolean } | null {
+    const g = this.objects.get(id)?.group;
+    if (!g || !g.children.length) return null;
+    const box = new THREE.Box3().setFromObject(g);
+    let solid = false;
+    g.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh && !o.userData.collisionWire && isSolid(o, g, prefixes)) solid = true;
+    });
+    return { top: box.max.y, base: box.min.y, solid };
   }
 
   setCell(cell: number) {
