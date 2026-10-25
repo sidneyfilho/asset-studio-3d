@@ -1,4 +1,4 @@
-// Comandos do Alvorland Studio chamados pela interface (React).
+// Comandos do Asset Studio 3D chamados pela interface (React).
 // A interface lê os arquivos pelo protocolo "asset" do Tauri; aqui ficam só as operações de disco:
 // ler o projeto Godot, listar modelos e mapas da pasta de origem, guardar miniaturas e sincronizar (sync.rs).
 mod sync;
@@ -170,5 +170,5 @@ pub fn run() {
             sync::godot_import
         ])
         .run(tauri::generate_context!())
-        .expect("erro ao iniciar o Alvorland Studio");
+        .expect("erro ao iniciar o Asset Studio 3D");
 }

@@ -1,4 +1,4 @@
-# Alvorland Studio (asset-studio-3d)
+# Asset Studio 3D (asset-studio-3d)
 
 Ferramenta separada do Godot para gerenciar os modelos 3D e os mapas do jogo, como o Sprite Manager fazia no 2D.
 Feita com Tauri 2 + React + three.js, no mesmo jeito do Object Builder.

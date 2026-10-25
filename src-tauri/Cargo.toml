@@ -1,7 +1,7 @@
 [package]
 name = "asset-studio-3d"
 version = "0.1.0"
-description = "Alvorland Studio: gerencia modelos 3D e mapas de projetos Godot"
+description = "Asset Studio 3D: gerencia modelos 3D e mapas de projetos Godot"
 edition = "2021"
 
 [lib]

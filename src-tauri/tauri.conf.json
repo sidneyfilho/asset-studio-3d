@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Alvorland Studio",
+  "productName": "Asset Studio 3D",
   "version": "0.1.0",
   "identifier": "com.alvorland.studio",
   "build": {
@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "title": "Alvorland Studio", "width": 1400, "height": 880, "minWidth": 900, "minHeight": 600, "center": true }
+      { "title": "Asset Studio 3D", "width": 1400, "height": 880, "minWidth": 900, "minHeight": 600, "center": true }
     ],
     "security": { "csp": null, "assetProtocol": { "enable": true, "scope": ["**"] } }
   },

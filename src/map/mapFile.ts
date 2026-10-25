@@ -59,7 +59,7 @@ const nodeName = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "_") || "Node";
 /** Script que o Godot usa para desenhar uma camada espalhada; a sincronização grava ao lado das cenas dos mapas */
 export const SCATTER_SCRIPT_NAME = "scatter.gd";
 export const SCATTER_SCRIPT = `extends Node3D
-## Gerado pelo Alvorland Studio ao sincronizar (não edite: é regravado).
+## Gerado pelo Asset Studio 3D ao sincronizar (não edite: é regravado).
 ## Desenha muitas cópias de um modelo (grama, flores, pedrinhas) com MultiMesh, numa chamada só.
 ## points: 4 números por cópia = x, z (no chão), giro em graus, escala.
 

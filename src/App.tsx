@@ -124,7 +124,7 @@ export default function App() {
   if (!ws) {
     return (
       <div className="start">
-        <h1>Alvorland Studio</h1>
+        <h1>Asset Studio 3D</h1>
         <p className="muted">
           Abra a pasta de origem (ex.: doc-alvorland). Os modelos ficam em <code>assets</code> e os mapas em <code>map</code>;
           o botão Sincronizar deixa o projeto Godot igual a ela.
