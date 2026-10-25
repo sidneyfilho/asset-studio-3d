@@ -8,6 +8,7 @@ import Viewer from "./Viewer";
 const RECENT_KEY = "recentProjects";
 const IGNORE_KEY = "ignoredFolders";
 const DEFAULT_IGNORE = "backups, node_modules, addons";
+const MAPS_KEY = "mapFolders:";
 
 // localStorage só guarda preferências desta janela (projetos recentes, pastas ignoradas)
 function readJson<T>(key: string, fallback: T): T {
@@ -39,6 +40,15 @@ export default function App() {
   const [selected, setSelected] = useState<ModelEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // pastas marcadas como "mapas" (cenas inteiras, não peças); guardadas por projeto
+  const [mapFolders, setMapFolders] = useState<string[]>([]);
+
+  function toggleMapFolder(f: string) {
+    if (!project) return;
+    const next = mapFolders.includes(f) ? mapFolders.filter((x) => x !== f) : [...mapFolders, f];
+    setMapFolders(next);
+    writeJson(MAPS_KEY + project.path, next);
+  }
 
   async function load(path: string) {
     setError(null);
@@ -49,6 +59,7 @@ export default function App() {
       const list = await listModels(info.path, ign);
       setProject(info);
       setModels(list);
+      setMapFolders(readJson(MAPS_KEY + info.path, []));
       setSelected((s) => (s && list.some((m) => m.abs === s.abs) ? s : null));
       const r = [path, ...recent.filter((p) => p !== path)].slice(0, 8);
       setRecent(r);
@@ -74,8 +85,27 @@ export default function App() {
 
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return models.filter((m) => (folder === null || folderOf(m.rel) === folder) && (!q || m.rel.toLowerCase().includes(q)));
-  }, [models, folder, filter]);
+    // "Todos" mostra só as peças; as pastas de mapas aparecem quando abertas pelo nome
+    const inFolder = (m: ModelEntry) => (folder === null ? !mapFolders.includes(folderOf(m.rel)) : folderOf(m.rel) === folder);
+    return models.filter((m) => inFolder(m) && (!q || m.rel.toLowerCase().includes(q)));
+  }, [models, folder, filter, mapFolders]);
+
+  const modelFolders = folders.filter(([f]) => !mapFolders.includes(f));
+  const sceneFolders = folders.filter(([f]) => mapFolders.includes(f));
+  const folderButton = ([f, n]: [string, number]) => (
+    <div key={f} className={folder === f ? "folder active" : "folder"}>
+      <button className="folder-name" onClick={() => setFolder(f)} title={f}>
+        {f} <span>{n}</span>
+      </button>
+      <button
+        className="folder-move"
+        onClick={() => toggleMapFolder(f)}
+        title={mapFolders.includes(f) ? "Voltar para os modelos" : "Marcar como pasta de mapas (cenas inteiras, não peças)"}
+      >
+        {mapFolders.includes(f) ? "↑" : "↓"}
+      </button>
+    </div>
+  );
 
   if (!project) {
     return (
@@ -111,14 +141,16 @@ export default function App() {
         <button onClick={() => { setProject(null); setFolder(null); setSelected(null); }}>Trocar projeto</button>
       </header>
       <aside>
-        <button className={folder === null ? "folder active" : "folder"} onClick={() => setFolder(null)}>
-          Todos <span>{models.length}</span>
-        </button>
-        {folders.map(([f, n]) => (
-          <button key={f} className={folder === f ? "folder active" : "folder"} onClick={() => setFolder(f)} title={f}>
-            {f} <span>{n}</span>
+        <h4>Modelos</h4>
+        <div className={folder === null ? "folder active" : "folder"}>
+          <button className="folder-name" onClick={() => setFolder(null)}>
+            Todos <span>{modelFolders.reduce((s, [, n]) => s + n, 0)}</span>
           </button>
-        ))}
+        </div>
+        {modelFolders.map(folderButton)}
+        <h4>Mapas</h4>
+        {sceneFolders.map(folderButton)}
+        {sceneFolders.length === 0 && <div className="muted hint">Use ↓ numa pasta para marcá-la como mapas.</div>}
       </aside>
       <main>
         <input className="search" placeholder="Filtrar por nome…" value={filter} onChange={(e) => setFilter(e.target.value)} />
