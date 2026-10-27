@@ -1,0 +1,18 @@
+[package]
+name = "asset-studio-3d"
+version = "0.1.0"
+description = "Asset Studio 3D: gerencia modelos 3D e mapas de projetos Godot"
+edition = "2021"
+
+[lib]
+name = "asset_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
