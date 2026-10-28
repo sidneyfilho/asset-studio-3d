@@ -31,6 +31,13 @@ Requer Node 20+ e Rust (cargo). Na primeira vez rode `npm install`.
   inteiras feitas no Blender). ↑ volta. Fica guardado em `alvorland-studio.json` (`notPieces`).
 - **Configurar**: projeto Godot de destino, pastas da origem e do Godot, executável do Godot.
 
+## Personagem
+
+**Vestir personagem** (barra lateral, aparece quando existe `characters/outfit/body.glb`): o corpo base com as roupas trocáveis,
+como o guarda-roupa do jogo. Escolha a peça de cada parte (calça, botas, camisa, cabelo, chapéu), a cor (as do jogo ou
+qualquer outra) e a animação. As peças, os nomes, as cores e o que cada peça esconde vêm do catálogo do jogo
+(`scripts/character/outfit_catalog.gd` no projeto Godot); sem ele, as peças saem dos nomes dos arquivos (`<parte>_<nome>.glb`).
+
 ## Editor de mapa
 
 Na barra lateral, **Mapas** lista os mapas de `map/`; "+ Novo mapa" cria um.

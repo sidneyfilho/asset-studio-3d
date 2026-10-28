@@ -112,3 +112,15 @@ button.card.active { border-color: var(--accent); }
 .solid-info { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .solid-info.yes { color: #ff7a6a; }
 label.inline { display: inline-flex; gap: 6px; align-items: center; }
+
+/* tela Personagem: barra no topo, peças à esquerda, personagem 3D */
+.dress { display: grid; grid-template: "head head" auto "panel view" minmax(0, 1fr) / 280px minmax(0, 1fr); height: 100vh; }
+.dress header { grid-area: head; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.dress-panel { grid-area: panel; padding: 12px; border-right: 1px solid var(--line); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+.dress-panel .slot h4 { margin: 0 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.dress-panel select { width: 100%; }
+.swatches { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+.swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 2px solid var(--line); }
+.swatch.on { border-color: var(--accent); }
+.swatches input[type="color"] { width: 30px; height: 26px; padding: 0; border: none; background: none; }
+.dress-view { grid-area: view; min-width: 0; min-height: 0; }
