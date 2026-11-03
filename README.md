@@ -1,76 +1,161 @@
-# Asset Studio 3D (asset-studio-3d)
+<p align="center">
+  <img src="app-icon.svg" width="96" alt="Ícone do Asset Studio 3D">
+</p>
 
-Ferramenta separada do Godot para gerenciar os modelos 3D e os mapas do jogo, como o Sprite Manager fazia no 2D.
-Feita com Tauri 2 + React + three.js, no mesmo jeito do Object Builder.
+<h1 align="center">Asset Studio 3D</h1>
 
-**A origem manda.** Tudo nasce numa pasta de origem (ex.: `doc-alvorland`):
+<p align="center">
+  Ferramenta desktop para organizar os modelos 3D de um jogo, montar os mapas e entregar tudo pronto para o Godot.
+</p>
+
+<p align="center">
+  <img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black">
+  <img alt="three.js" src="https://img.shields.io/badge/three.js-0.170-000000?logo=threedotjs&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-backend-DEA584?logo=rust&logoColor=black">
+  <img alt="Godot 4" src="https://img.shields.io/badge/Godot-4-478CBF?logo=godotengine&logoColor=white">
+</p>
+
+![Editor de mapa com a casa da fazenda, árvores e grama espalhada](docs/images/editor-mapa.jpg)
+
+O Asset Studio 3D nasceu para o **Alvorland**, um jogo de fazenda em low poly feito no Godot. Ele substitui o trabalho
+manual de copiar `.glb`, montar cenas à mão e conferir escala modelo por modelo. Os modelos e os mapas ficam numa
+**pasta de origem**, e a ferramenta deixa o projeto Godot igual a ela com um clique.
+
+## Destaques
+
+- **Catálogo de modelos** com miniaturas geradas na própria ferramenta, separado por pasta e com filtro por nome.
+- **Visualizador 3D** que mostra tamanho em metros e em células da grade, triângulos, materiais, malha em aramado e
+  toca as animações do modelo.
+- **Editor de mapa** completo: colocar, mover, girar, subir e descer peças com gizmos, encaixe na grade, desfazer,
+  duplicar, travar e esconder.
+- **Pincel de vegetação**: espalha milhares de cópias (grama, flores, pedrinhas) desenhadas com `InstancedMesh`
+  e exportadas para o Godot como `MultiMesh`.
+- **Ver dentro** e **Colisão**: espia o interior das casas como o jogo faz e destaca as malhas que serão sólidas.
+- **Sincronização com o Godot** com prévia: mostra o que vai ser copiado, apagado e gerado antes de mudar qualquer
+  arquivo, e roda a importação do Godot no fim.
+
+## Telas
+
+### Catálogo de modelos
+
+Todos os `.glb`/`.gltf` da pasta `assets`, agrupados por pasta. As miniaturas usam a mesma inclinação da câmera do jogo
+(30° de elevação, 30° de giro) e ficam em cache, sendo refeitas só quando o arquivo muda.
+
+![Grade de modelos com miniaturas e pastas na barra lateral](docs/images/modelos.jpg)
+
+### Visualizador
+
+Clique num modelo para vê-lo em 3D numa grade de células de 2 m. O painel avisa quando a base não está no chão, lista
+materiais e animações e liga o aramado para conferir a malha.
+
+| Informações do modelo | Malha em aramado |
+| --- | --- |
+| ![Visualizador mostrando um cachorro com tamanho, triângulos e materiais](docs/images/visualizador.jpg) | ![Casinha de cachorro com a malha em aramado](docs/images/aramado.jpg) |
+
+### Editor de mapa
+
+A paleta à esquerda tem todos os modelos. Clique num deles e depois no chão para colocar. O objeto selecionado ganha
+setas para arrastar (a verde sobe e desce) ou um anel para girar, e o painel à direita aceita valores exatos de
+posição, giro e escala.
+
+![Telhado selecionado com as setas de mover e o painel de propriedades](docs/images/mover.jpg)
+
+| Ver dentro | Colisão |
+| --- | --- |
+| ![Casa sem telhado e sem a parede da frente, mostrando os móveis](docs/images/ver-dentro.jpg) | ![Malhas sólidas da casa, da varanda e da horta em vermelho](docs/images/colisao.jpg) |
+| Esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra. | Pinta de vermelho as malhas que o jogo deixa sólidas (pelo prefixo do nome). |
+
+### Pincel
+
+Com o **Pincel (B)** você escolhe o que espalhar e arrasta no chão. Raio, densidade e tamanho mínimo e máximo ficam no
+painel, junto com a lista de camadas e quantas cópias cada uma tem. **Shift + arrastar** apaga.
+
+![Pincel ativo com o círculo de alcance e a lista de camadas espalhadas](docs/images/pincel.jpg)
+
+| Outro mapa | Configuração |
+| --- | --- |
+| ![Clareira com pinheiros, arbustos e pedras](docs/images/clareira.jpg) | ![Janela de configuração com as pastas da origem e do Godot](docs/images/configurar.jpg) |
+
+## Como funciona
+
+**A origem manda.** Tudo nasce numa pasta de origem, que pode ficar versionada à parte do projeto Godot:
 
 ```
-doc-alvorland/
+minha-origem/
   assets/                 modelos .glb (e as texturas deles), em subpastas (kit, nature, chars...)
   map/                    mapas da ferramenta (*.map.json)
   alvorland-studio.json   configuração (criada na primeira vez)
 ```
 
-O botão **Sincronizar com o Godot** deixa o projeto Godot igual à origem.
+O botão **Sincronizar com o Godot** faz o resto:
 
-## Como abrir
+```mermaid
+flowchart LR
+  A["assets/*.glb"] -->|copia o que mudou<br>apaga o que saiu| B["res://assets/"]
+  M["map/*.map.json"] -->|gera uma cena por mapa| C["res://maps/*.tscn"]
+  B --> I["godot --headless --import"]
+  C --> I
+```
 
-Dê dois cliques em `studio.bat` (modo desenvolvimento: compila e abre a janela).
-Para gerar o `.exe`: `npm run tauri build` (sai em `src-tauri/target/release/`).
-Requer Node 20+ e Rust (cargo). Na primeira vez rode `npm install`.
-
-## Tela principal
-
-- **Abrir pasta de origem**: as últimas 8 ficam em "Recentes".
-- **Modelos**: todos os `.glb`/`.gltf` de `assets`, separados por pasta, com miniatura e filtro por nome.
-  As miniaturas usam a inclinação da câmera do jogo (30° de elevação, 30° de giro) e ficam no cache do app.
-- **Visualizador 3D**: clique num modelo. Botão esquerdo gira, direito arrasta, roda dá zoom. A grade tem células de
-  2 m. Mostra tamanho em metros e em células, se a base está no chão, triângulos, materiais e toca as animações.
-- **Não são peças**: passe o mouse numa pasta e clique ↓ para tirá-la de "Todos" e da paleta do mapa (ex.: `scenes`, cenas
-  inteiras feitas no Blender). ↑ volta. Fica guardado em `alvorland-studio.json` (`notPieces`).
-- **Configurar**: projeto Godot de destino, pastas da origem e do Godot, executável do Godot.
-
-## Editor de mapa
-
-Na barra lateral, **Mapas** lista os mapas de `map/`; "+ Novo mapa" cria um.
-
-- Paleta à esquerda: escolha a pasta, clique num modelo e clique no chão para colocar (pode clicar várias vezes).
-  **R** gira 90° (Shift+R para o outro lado), **Esc** para de colocar.
-- Clique num objeto para selecionar. **W** (Mover): setas para arrastar no chão e a seta **verde sobe e desce**.
-  **E** (Girar): anel para girar em volta do eixo vertical (de 15 em 15° com encaixe). **R** gira 90° (Shift+R volta),
-  **Q**/**T** giram 15° (com Shift, 1°), **Page Up/Page Down** sobem e descem 10 cm (com Shift, 1 cm).
-  Ao arrastar com encaixe, a peça anda em passos a partir de onde estava (não é puxada para o centro da célula).
-  **Delete** apaga, **Ctrl+D** duplica.
-- **Pincel (B)**: escolha na paleta o que espalhar (ex.: `grass_a`, `flower_w`, `pebble_a`) e arraste no chão. **Shift + arrastar**
-  apaga (de todas as camadas). Raio, densidade e tamanho mínimo/máximo ficam à direita; Ctrl+Z desfaz o traço inteiro.
-  As cópias ficam em camadas (`scatter` no `.map.json`: x, z, giro, escala) e no Godot viram MultiMesh (o `scatter.gd`,
-  gravado pela sincronização na pasta dos mapas, desenha todas de uma vez).
-- **Ver dentro** (barra de cima) esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra.
-  **H** (ou o botão Esconder) esconde a peça selecionada; **Alt+H** mostra tudo. Isso vale só no editor: nada some do mapa.
-  À direita dá para digitar posição, giro e escala, e **travar** o objeto (ex.: a base do mapa), que aí não é mais
-  selecionado clicando na vista; os travados aparecem numa lista à direita para destravar.
-- **Ctrl+Z** desfaz, **Ctrl+S** salva (em `map/<nome>.map.json`).
-- Vista: botão direito gira, botão do meio arrasta, roda dá zoom. Encaixe: centro da célula de 2 m, meio metro ou livre.
-
-## Sincronizar com o Godot
-
-Primeiro mostra o que vai acontecer (copiar, apagar, mapas gerados) e só muda algo depois de confirmar.
-
-- `assets/` da origem → pasta de modelos no Godot (padrão `res://assets/`): copia o que é novo ou mudou e
-  **apaga o que não existe mais na origem**. Ficam só os arquivos que o Godot cria ao importar (o `.import` de cada
-  arquivo e as texturas que ele extrai de um `.glb`). Por isso essa pasta é só da ferramenta: não coloque nada à mão nela.
-- cada `map/<nome>.map.json` → `res://maps/<nome>.tscn`, um nó por objeto instanciando o `.glb`. Cenas `.tscn` dessa
-  pasta que não vêm mais de um mapa são apagadas.
-- Depois roda `godot --headless --import` no projeto (se o executável estiver configurado).
+- `assets/` da origem vira a pasta de modelos do Godot (padrão `res://assets/`). Arquivos novos ou alterados são
+  copiados e **o que não existe mais na origem é apagado**, menos os arquivos que o próprio Godot cria ao importar
+  (`.import` e texturas extraídas). Por isso essa pasta pertence à ferramenta: não coloque nada à mão nela.
+- Cada `map/<nome>.map.json` vira `res://maps/<nome>.tscn`, com um nó por objeto instanciando o `.glb`. As camadas
+  do pincel viram `MultiMesh`, desenhadas por um `scatter.gd` que a sincronização grava junto.
+- Antes de qualquer mudança aparece uma prévia; nada é alterado sem confirmação.
 - A pasta de destino precisa ficar dentro do projeto Godot e não pode ser a raiz dele.
 
-## Estrutura
+A configuração fica dentro da própria origem (`alvorland-studio.json`) com caminhos relativos, então vale em qualquer
+computador que abrir a mesma pasta.
 
-- `src-tauri/src/lib.rs`: lado Rust (ler `project.godot`, listar modelos e mapas, ler/gravar texto, miniaturas).
-- `src-tauri/src/sync.rs`: sincronização com o Godot (com teste: `cargo test` em `src-tauri`).
-- `src/workspace.ts`: pasta de origem e configuração (`alvorland-studio.json`).
-- `src/App.tsx`: telas (inicial e da origem). `src/SyncDialog.tsx`, `src/ConfigDialog.tsx`: janelas.
-- `src/Viewer.tsx`: visualizador 3D. `src/Card.tsx`: cartão com miniatura.
-- `src/three/`: carregar GLB (com texturas externas), miniaturas, cache de modelos.
-- `src/map/`: editor de mapa (`MapEditor.tsx`), parte 3D (`mapScene.ts`), formato e exportação `.tscn` (`mapFile.ts`).
+## Como rodar
+
+Requisitos: **Node 20+** e **Rust** (cargo), além das
+[dependências do Tauri](https://tauri.app/start/prerequisites/) para o seu sistema.
+
+```bash
+npm install
+npm run tauri dev      # abre a janela em modo desenvolvimento
+npm run tauri build    # gera o executável em src-tauri/target/release/
+```
+
+No Windows, `studio.bat` faz o mesmo que o `tauri dev` com dois cliques.
+
+## Atalhos do editor de mapa
+
+| Tecla | O que faz |
+| --- | --- |
+| **W** / **E** / **B** | Mover, Girar, Pincel |
+| **R** / **Shift+R** | Gira 90° para um lado ou para o outro |
+| **Q** / **T** | Gira 15° (com Shift, 1°) |
+| **Page Up** / **Page Down** | Sobe e desce 10 cm (com Shift, 1 cm) |
+| **H** / **Alt+H** | Esconde a peça selecionada / mostra todas (só no editor) |
+| **Delete** / **Ctrl+D** | Apaga / duplica |
+| **Ctrl+Z** / **Ctrl+S** | Desfaz / salva em `map/<nome>.map.json` |
+| **Esc** | Para de colocar peças, solta a seleção e sai do pincel |
+| Botão direito, botão do meio, roda | Gira a vista, arrasta, zoom |
+
+O encaixe pode ser no centro da célula de 2 m, a cada meio metro ou livre. Ao arrastar com encaixe, a peça anda em
+passos a partir de onde estava, sem ser puxada para o centro da célula. Objetos **travados** (como o chão do mapa)
+não são selecionados clicando na vista e aparecem numa lista à direita para destravar.
+
+Na tela de modelos, passe o mouse numa pasta e clique ↓ para marcá-la como "não são peças" (por exemplo, cenas
+inteiras feitas no Blender): ela sai de "Todos" e da paleta do mapa. ↑ desfaz.
+
+## Estrutura do código
+
+| Caminho | Conteúdo |
+| --- | --- |
+| `src-tauri/src/lib.rs` | Lado Rust: ler `project.godot`, listar modelos e mapas, ler e gravar texto, miniaturas |
+| `src-tauri/src/sync.rs` | Sincronização com o Godot (com testes: `cargo test` em `src-tauri`) |
+| `src/workspace.ts` | Pasta de origem e configuração (`alvorland-studio.json`) |
+| `src/App.tsx` | Tela inicial e tela da origem; `SyncDialog.tsx` e `ConfigDialog.tsx` são as janelas |
+| `src/Viewer.tsx`, `src/Card.tsx` | Visualizador 3D e cartão com miniatura |
+| `src/three/` | Carregar GLB (com texturas externas), gerar miniaturas, cache de modelos |
+| `src/map/` | Editor de mapa (`MapEditor.tsx`), cena 3D (`mapScene.ts`), formato e exportação `.tscn` (`mapFile.ts`) |
+
+## Autor
+
+Feito por [Sidney Filho](https://github.com/sidneyfilho) para o jogo Alvorland.
