@@ -140,11 +140,39 @@ export function overlaps(a: Area, b: Area): boolean {
 
 export type WorldBox = { min: Vec3; max: Vec3 };
 
-export function deriveAreas(c: Catalog, instances: { id: string; model: string; noAreas?: boolean }[], boxes: Map<string, WorldBox>): Area[] {
+export type FootprintShapes = { models: Record<string, { aabb: { min: Vec3; max: Vec3 }; footprint?: number[][] }> };
+
+/**
+ * Áreas das instâncias cujo modelo tem area_tags no catálogo. Com a pegada do modelo (server_shapes.json) a zona segue a
+ * forma real do objeto (uma varanda em L fica em L), igual ao jogo; sem ela, vale a caixa que envolve o objeto.
+ */
+export function deriveAreas(
+  c: Catalog,
+  instances: { id: string; model: string; noAreas?: boolean; pos?: Vec3; rotY?: number; scale?: number }[],
+  boxes: Map<string, WorldBox>,
+  shapes?: FootprintShapes | null,
+): Area[] {
   const out: Area[] = [];
   for (const i of instances) {
     if (i.noAreas) continue;
     const tags = areaTagsFor(c, i.model);
+    const entry = shapes?.models[i.model];
+    if (tags.length && entry?.footprint?.length && i.pos) {
+      const k = i.scale ?? 1;
+      const a = (((i.rotY ?? 0) * Math.PI) / 180), sn = Math.sin(a), cs = Math.cos(a);
+      const y0 = entry.aabb.min[1], y1 = entry.aabb.max[1];
+      entry.footprint.forEach(([x0, z0, x1, z1], n) => {
+        const lx = ((x0 + x1) / 2) * k, lz = ((z0 + z1) / 2) * k;
+        out.push({
+          id: `${i.id}#${n}`,
+          shape: { type: "box", center: [i.pos![0] + lx * cs + lz * sn, i.pos![1] + ((y0 + y1) / 2) * k, i.pos![2] - lx * sn + lz * cs], size: [(x1 - x0) * k, Math.max(y1 - y0, 0.05) * k, (z1 - z0) * k], yaw: i.rotY ?? 0 },
+          tags,
+          priority: 0,
+          note: "derivada do modelo (area_tags), pela pegada dele",
+        });
+      });
+      continue;
+    }
     const b = boxes.get(i.id);
     if (!tags.length || !b) continue;
     const size: Vec3 = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];

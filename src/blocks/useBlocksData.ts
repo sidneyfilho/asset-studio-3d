@@ -21,7 +21,7 @@ async function readJson(p: string): Promise<unknown | null> {
 }
 
 /** server_shapes.json (gerado ao sincronizar): caixas [x0, z0, x1, z1, y0, y1] no espaço do modelo, por modelo */
-export type ServerShapes = { version: number; cell: number; tolerance: number; models: Record<string, { profile: string; aabb: { min: Vec3; max: Vec3 }; boxes?: number[][] }> };
+export type ServerShapes = { version: number; cell: number; tolerance: number; models: Record<string, { profile: string; aabb: { min: Vec3; max: Vec3 }; boxes?: number[][]; footprint?: number[][] }> };
 
 export function useBlocksData(ws: Workspace, mapFile: string | null, modelRels: string[]) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);

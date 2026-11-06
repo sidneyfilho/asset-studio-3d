@@ -66,7 +66,7 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
     return () => timers.forEach(clearTimeout);
   }, [instances, scene]);
 
-  const derived = useMemo(() => (catalog ? deriveAreas(catalog, instances, boxes) : []), [catalog, instances, boxes]);
+  const derived = useMemo(() => (catalog ? deriveAreas(catalog, instances, boxes, data.serverShapes) : []), [catalog, instances, boxes, data.serverShapes]);
   const authored = data.areas.areas;
   const area = authored.find((a) => a.id === areaId) ?? null;
 
