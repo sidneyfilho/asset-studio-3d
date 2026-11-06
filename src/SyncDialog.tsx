@@ -1,6 +1,6 @@
 // Janela do "Sincronizar com o Godot": primeiro mostra o que vai mudar, depois aplica e manda o Godot importar.
 import { useEffect, useState } from "react";
-import { godotImport, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
+import { godotExportBlocks, godotImport, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
 import { parseMap, toTscn, SCATTER_SCRIPT, SCATTER_SCRIPT_NAME } from "./map/mapFile";
 import type { Workspace } from "./workspace";
 
@@ -64,7 +64,18 @@ export default function SyncDialog({ ws, maps, godotExe, onClose }: Props) {
       setPlan(done);
       if (godotExe) {
         setStage("importing");
-        setLog(await godotImport(godotExe, ws.godot));
+        let text = await godotImport(godotExe, ws.godot);
+        // regrava os bloqueios (<mapa>.blocks.json) ao lado de cada mapa; se falhar, só avisa
+        for (const m of maps) {
+          const name = m.rel.replace(/.map.json$/i, "").split("/").pop()!;
+          try {
+            await godotExportBlocks(godotExe, ws.godot, name, ws.maps);
+          } catch (e) {
+            text += `
+Bloqueios de ${name} não regravados: ${String(e)}`;
+          }
+        }
+        setLog(text);
       } else {
         setLog("Importação do Godot pulada (defina o executável do Godot em Configurar).");
       }

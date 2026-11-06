@@ -220,6 +220,34 @@ pub async fn godot_import(exe: String, project: String) -> Result<String, String
     Ok(lines[lines.len().saturating_sub(15)..].join("\n"))
 }
 
+/// Regrava os bloqueios de um mapa (T068): roda tools/export_blocks.gd do projeto Godot, que grava <mapa>.blocks.json
+/// ao lado do .map.json. Somente leitura para o jogo; sem o script no projeto, não faz nada.
+#[tauri::command]
+pub async fn godot_export_blocks(exe: String, project: String, map: String, out: String) -> Result<String, String> {
+    if !Path::new(&exe).is_file() {
+        return Err(format!("Executável do Godot não encontrado: {exe}"));
+    }
+    if !Path::new(&project).join("tools/export_blocks.gd").is_file() {
+        return Ok(String::new());
+    }
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        Command::new(&exe)
+            .args(["--headless", "--path", &project, "--script", "res://tools/export_blocks.gd", "--"])
+            .arg(format!("--map={map}"))
+            .arg(format!("--out={out}"))
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+    if !res.status.success() {
+        let text = String::from_utf8_lossy(&res.stdout).to_string() + &String::from_utf8_lossy(&res.stderr);
+        return Err(text.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("
+"));
+    }
+    Ok(String::from_utf8_lossy(&res.stdout).lines().last().unwrap_or("").to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

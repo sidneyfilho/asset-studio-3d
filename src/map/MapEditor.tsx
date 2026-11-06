@@ -5,6 +5,7 @@ import { pathExists, readText, writeText, type ModelEntry } from "../api";
 import Card, { modelName } from "../Card";
 import { joinPath, type Workspace } from "../workspace";
 import { MapScene, type GizmoMode, type Snap } from "./mapScene";
+import { BLOCK_TYPES, blocksPathOf, parseBlocks, type BlocksData } from "./blocks";
 import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance, type ScatterLayer, type ScatterPoint } from "./mapFile";
 
 type Props = {
@@ -217,6 +218,19 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   const [showSolid, setShowSolid] = useState(false);
   const solidPrefixes = ws.config.solidPrefixes ?? [];
   useEffect(() => sceneRef.current?.setCollisionView(showSolid ? solidPrefixes : null), [showSolid, solidPrefixes.join(",")]);
+  // bloqueios do jogo (T068): camada só de leitura, vinda de <mapa>.blocks.json (gerado pelo Godot ao sincronizar)
+  const [blocks, setBlocks] = useState<BlocksData | null>(null);
+  const [showBlocks, setShowBlocks] = useState(false);
+  const [blockOn, setBlockOn] = useState<Record<string, boolean>>({});
+  const [blockColor, setBlockColor] = useState<Record<string, string>>(() => Object.fromEntries(BLOCK_TYPES.map((t) => [t.id, t.color])));
+  useEffect(() => {
+    setBlocks(null);
+    if (!path) return;
+    const p = blocksPathOf(path);
+    pathExists(p).then((ok) => (ok ? readText(p).then((t) => setBlocks(parseBlocks(t))) : undefined)).catch(() => undefined);
+  }, [path]);
+  useEffect(() => sceneRef.current?.setBlocks(showBlocks ? blocks : null, blockColor, blockOn), [blocks, showBlocks]);
+  useEffect(() => sceneRef.current?.setBlockStyle(blockColor, blockOn), [blockColor, blockOn]);
   const [selInfo, setSelInfo] = useState<{ top: number; base: number; solid: boolean } | null>(null);
   useEffect(() => {
     setSelInfo(null);
@@ -338,6 +352,10 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
             Colisão
           </button>
         )}
+        <button className={showBlocks ? "on toggle" : "toggle"} disabled={!blocks} onClick={() => setShowBlocks(!showBlocks)}
+          title={blocks ? "Mostra por cima do mapa o que bloqueia a personagem, a mula e a voadora no jogo (só leitura)" : "Sem bloqueios deste mapa: sincronize com o Godot para gerar o arquivo .blocks.json"}>
+          Bloqueios
+        </button>
         {outer.length > 0 && (
           <button className={seeInside ? "on toggle" : "toggle"} onClick={() => setHiddenIds(outer.map((i) => i.id), !seeInside)}
             title="Esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra">
@@ -391,6 +409,19 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         </div>
       </div>
       <section className="inspector">
+        {showBlocks && blocks && (
+          <div className="locked-list blocks-panel">
+            <h4>Bloqueios do jogo (só leitura)</h4>
+            {BLOCK_TYPES.map((t) => (
+              <label key={t.id} className="block-row" title={t.hint}>
+                <input type="checkbox" checked={blockOn[t.id] !== false} onChange={(e) => setBlockOn({ ...blockOn, [t.id]: e.target.checked })} />
+                <input type="color" value={blockColor[t.id]} onChange={(e) => setBlockColor({ ...blockColor, [t.id]: e.target.value })} />
+                {t.label}
+              </label>
+            ))}
+            <div className="muted small">Pouso da voadora: altura máxima {blocks.flyer.max_altitude} m · passeio da mula: {blocks.mule.wander_radius} m. Valores do código do jogo; o arquivo é regerado ao sincronizar.</div>
+          </div>
+        )}
         {brushOn ? (
           <BrushPanel brush={brush} setBrush={setBrush} layers={map.scatter}
             clearLayer={(id) => change((m) => ({ ...m, scatter: m.scatter.filter((l) => l.id !== id) }))} />

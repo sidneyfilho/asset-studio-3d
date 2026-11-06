@@ -7,6 +7,7 @@ import { TransformControls } from "three/examples/jsm/controls/TransformControls
 import { addLights } from "../three/loadModel";
 import { getModel, instanceModel } from "../three/modelCache";
 import type { MapInstance, ScatterLayer } from "./mapFile";
+import { solidType, type BlocksData, type Box3 } from "./blocks";
 
 export type Snap = "cell" | "half" | "free";
 
@@ -422,6 +423,148 @@ export class MapScene {
       if ((o as THREE.Mesh).isMesh && !o.userData.collisionWire && isSolid(o, g, prefixes)) solid = true;
     });
     return { top: box.max.y, base: box.min.y, solid };
+  }
+
+  // ---------- camada de bloqueios (T068): só desenho, lida do <mapa>.blocks.json
+
+  private blockGroups = new Map<string, THREE.Group>();
+
+  /** Desenha os bloqueios (null apaga). Cada tipo vira um grupo; cor e visibilidade vêm depois, por tipo */
+  setBlocks(data: BlocksData | null, colors: Record<string, string>, visible: Record<string, boolean>) {
+    for (const g of this.blockGroups.values()) {
+      this.scene.remove(g);
+      g.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+      });
+    }
+    this.blockGroups.clear();
+    if (!data) return;
+    const Y = 0.06; // um pouco acima do chão, para não brigar com ele
+    const group = (id: string) => {
+      let g = this.blockGroups.get(id);
+      if (!g) {
+        g = new THREE.Group();
+        g.renderOrder = 20;
+        this.blockGroups.set(id, g);
+        this.scene.add(g);
+      }
+      return g;
+    };
+    // sem teste de profundidade: o overlay aparece por cima da casa e das árvores
+    const fillMat = () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.38, depthTest: false, depthWrite: false, side: THREE.DoubleSide });
+    const lineMat = () => new THREE.LineBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false });
+    const flat = (geo: THREE.BufferGeometry, y = Y) => {
+      const m = new THREE.Mesh(geo, fillMat());
+      m.position.y = y;
+      m.renderOrder = 20;
+      m.raycast = () => undefined;
+      return m;
+    };
+    const lines = (geo: THREE.BufferGeometry) => {
+      const l = new THREE.LineSegments(geo, lineMat());
+      l.renderOrder = 21;
+      l.raycast = () => undefined;
+      return l;
+    };
+    const rectFlat = (x0: number, z0: number, x1: number, z1: number, y = Y) => {
+      const m = flat(new THREE.PlaneGeometry(x1 - x0, z1 - z0).rotateX(-Math.PI / 2), y);
+      m.position.x = (x0 + x1) / 2;
+      m.position.z = (z0 + z1) / 2;
+      return m;
+    };
+    const boxEdges = (b: Box3) => {
+      const size = new THREE.Vector3(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
+      const e = lines(new THREE.EdgesGeometry(new THREE.BoxGeometry(size.x, size.y, size.z)));
+      e.position.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
+      return e;
+    };
+    const rectOutline = (x0: number, z0: number, x1: number, z1: number, y = Y) => {
+      const pts = [x0, y, z0, x1, y, z0, x1, y, z0, x1, y, z1, x1, y, z1, x0, y, z1, x0, y, z1, x0, y, z0];
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+      return lines(geo);
+    };
+    const ring = (cx: number, cz: number, r: number, w: number) => {
+      const m = flat(new THREE.RingGeometry(Math.max(r - w, 0), r, 96).rotateX(-Math.PI / 2));
+      m.position.x = cx;
+      m.position.z = cz;
+      return m;
+    };
+    const disc = (cx: number, cz: number, r: number) => {
+      const m = flat(new THREE.CircleGeometry(r, 32).rotateX(-Math.PI / 2));
+      m.position.x = cx;
+      m.position.z = cz;
+      return m;
+    };
+    const pole = (x: number, y0: number, y1: number, z: number) => {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute([x, y0, z, x, y1, z], 3));
+      return lines(geo);
+    };
+
+    // limites do mapa: a faixa de fora (fora dos 36 m) preenchida, mais o contorno
+    const [bx0, bz0] = data.bounds.min, [bx1, bz1] = data.bounds.max;
+    const out = 120;
+    const shape = new THREE.Shape([new THREE.Vector2(-out, -out), new THREE.Vector2(out, -out), new THREE.Vector2(out, out), new THREE.Vector2(-out, out)]);
+    shape.holes.push(new THREE.Path([new THREE.Vector2(bx0, bz0), new THREE.Vector2(bx0, bz1), new THREE.Vector2(bx1, bz1), new THREE.Vector2(bx1, bz0)]));
+    const outside = flat(new THREE.ShapeGeometry(shape).rotateX(Math.PI / 2));
+    (outside.material as THREE.MeshBasicMaterial).opacity = 0.22;
+    group("bounds").add(outside, rectOutline(bx0, bz0, bx1, bz1));
+
+    // malhas sólidas: a pegada real vista de cima (células de 0,25 m), uma malha só por tipo.
+    // Sem "rects" (arquivo antigo) cai na caixa; a cerca nunca usa a caixa, que cobre o terreno todo.
+    const quads = new Map<string, number[]>();
+    for (const sd of data.solids) {
+      const id = solidType(sd.kind);
+      const arr = quads.get(id) ?? [];
+      quads.set(id, arr);
+      const rects = sd.rects ?? (sd.kind === "fence" ? [] : [[sd.min[0], sd.min[2], sd.max[0], sd.max[2], sd.max[1]]]);
+      for (const [x0, z0, x1, z1] of rects) arr.push(x0, 0, z0, x1, 0, z0, x1, 0, z1, x0, 0, z0, x1, 0, z1, x0, 0, z1);
+    }
+    for (const [id, pos] of quads) {
+      if (!pos.length) continue;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      group(id).add(flat(geo));
+    }
+    for (const t of data.trunks) {
+      const g = group("trunks");
+      g.add(disc(t.pos[0], t.pos[1], t.radius));
+      g.add(pole(t.pos[0], 0, t.height, t.pos[1]));
+    }
+    for (const b of [data.door, data.wardrobe]) {
+      group("door").add(rectFlat(b.min[0], b.min[2], b.max[0], b.max[2]), boxEdges(b));
+    }
+    const wz = group("deep_water");
+    if (data.deep_water.length) {
+      const pos: number[] = [];
+      for (const t of data.deep_water) for (const [x, z] of t) pos.push(x, 0, z);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      wz.add(flat(geo, 0.04));
+    }
+    for (const z of data.mount_zones.zones) {
+      group("mount_zones").add(rectFlat(z.min[0], z.min[1], z.max[0], z.max[1], 0.05), rectOutline(z.min[0], z.min[1], z.max[0], z.max[1], 0.05));
+    }
+    const [rx, , rz] = data.mule.rest_point;
+    group("mule").add(ring(rx, rz, data.mule.wander_radius, 0.12), disc(rx, rz, 0.35));
+    const [lx, , lz] = data.flyer.land_point;
+    group("landing").add(disc(lx, lz, 0.5), pole(lx, 0, data.flyer.max_altitude, lz), ring(lx, lz, 1.0, 0.08));
+
+    this.setBlockStyle(colors, visible);
+  }
+
+  /** Cor e interruptor por tipo */
+  setBlockStyle(colors: Record<string, string>, visible: Record<string, boolean>) {
+    for (const [id, g] of this.blockGroups) {
+      g.visible = visible[id] !== false;
+      const c = new THREE.Color(colors[id] ?? "#ffffff");
+      g.traverse((o) => {
+        const mat = (o as THREE.Mesh).material as THREE.MeshBasicMaterial | THREE.LineBasicMaterial | undefined;
+        if (mat && "color" in mat) mat.color.copy(c);
+      });
+    }
   }
 
   setCell(cell: number) {

@@ -124,3 +124,6 @@ label.inline { display: inline-flex; gap: 6px; align-items: center; }
 .swatch.on { border-color: var(--accent); }
 .swatches input[type="color"] { width: 30px; height: 26px; padding: 0; border: none; background: none; }
 .dress-view { grid-area: view; min-width: 0; min-height: 0; }
+
+.block-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 0; }
+.block-row input[type="color"] { width: 22px; height: 18px; padding: 0; border: 0; background: none; }

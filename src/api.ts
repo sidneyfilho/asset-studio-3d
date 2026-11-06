@@ -18,6 +18,8 @@ export type SyncRequest = {
   apply: boolean;
 };
 export const syncGodot = (req: SyncRequest) => invoke<SyncReport>("sync_godot", { req });
+export const godotExportBlocks = (exe: string, project: string, map: string, out: string) =>
+  invoke<string>("godot_export_blocks", { exe, project, map, out });
 export const godotImport = (exe: string, project: string) => invoke<string>("godot_import", { exe, project });
 
 export const listMaps =(root: string, ignore: string[]) => invoke<ModelEntry[]>("list_maps", { root, ignore });
