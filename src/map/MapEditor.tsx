@@ -461,7 +461,7 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
       <section className="inspector">
         {showRules && (
           <BlocksPanel data={bdata} instances={map.instances} selected={sel} scene={sceneRef.current} hasMapFile={Boolean(path)} tab={rulesTab} setTab={setRulesTab}
-            setInstanceCollision={(id, profile) => update(id, { collision: profile })} setMessage={setMessage} />
+            setInstanceCollision={(id, profile) => update(id, { collision: profile })} setInstanceNoAreas={(id, value) => update(id, { noAreas: value || undefined })} setMessage={setMessage} />
         )}
         {showBlocks && blocks && (
           <div className="locked-list blocks-panel">

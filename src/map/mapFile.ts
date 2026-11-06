@@ -16,6 +16,8 @@ export type MapInstance = {
   locked?: boolean;
   /** perfil de colisão desta instância (override do catálogo de colisão; vazio = vale a regra do catálogo) */
   collision?: string;
+  /** não gera as áreas derivadas do modelo (area_tags do catálogo) só para esta instância */
+  noAreas?: boolean;
 };
 
 /** Uma cópia espalhada: x, z (no chão), giro em graus, escala */
@@ -117,7 +119,7 @@ export function toTscn(m: MapData, resPrefix: string, scriptPath = "res://maps/"
     const a = (i.rotY * Math.PI) / 180;
     const c = Math.cos(a) * i.scale, s = Math.sin(a) * i.scale, k = i.scale;
     const t = [c, 0, s, 0, k, 0, -s, 0, c, ...i.pos].map(num).join(", ");
-    out.push(`[node name="${base}_${n}" parent="." instance=ExtResource("${idOf.get(i.model)}")]`, `transform = Transform3D(${t})`, ...(i.collision ? [`metadata/collision_profile = "${i.collision.replace(/[\\"]/g, "")}"`] : []), "");
+    out.push(`[node name="${base}_${n}" parent="." instance=ExtResource("${idOf.get(i.model)}")]`, `transform = Transform3D(${t})`, ...(i.collision ? [`metadata/collision_profile = "${i.collision.replace(/[\\"]/g, "")}"`] : []), ...(i.noAreas ? ["metadata/no_area_tags = true"] : []), "");
   }
   for (const l of layers) {
     out.push(

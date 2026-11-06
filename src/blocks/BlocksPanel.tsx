@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { MapInstance } from "../map/mapFile";
 import type { MapScene } from "../map/mapScene";
-import { resolveProfile, SHAPES, BLOCK_LAYERS, type Issue, type Profile, type Vec3 } from "./catalog";
+import { globMatch, resolveProfile, SHAPES, BLOCK_LAYERS, type Issue, type Profile, type Vec3 } from "./catalog";
 import type { Region } from "./regions";
 import { deriveAreas, KNOWN_TAGS, tagColor, type Area, type AreaShape, type WorldBox } from "./areas";
 import type { useBlocksData } from "./useBlocksData";
@@ -20,6 +20,7 @@ type Props = {
   tab: BlocksTab;
   setTab: (t: BlocksTab) => void;
   setInstanceCollision: (id: string, profile: string | undefined) => void;
+  setInstanceNoAreas: (id: string, value: boolean) => void;
   setMessage: (m: string) => void;
 };
 
@@ -39,7 +40,7 @@ function IssueList({ issues }: { issues: Issue[] }) {
   );
 }
 
-export default function BlocksPanel({ data, instances, selected, scene, hasMapFile, tab, setTab, setInstanceCollision, setMessage }: Props) {
+export default function BlocksPanel({ data, instances, selected, scene, hasMapFile, tab, setTab, setInstanceCollision, setInstanceNoAreas, setMessage }: Props) {
   const { catalog } = data;
   const [profileId, setProfileId] = useState<string>("");
   const [newProfile, setNewProfile] = useState("");
@@ -175,6 +176,35 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
                 {Object.keys(catalog.profiles).map((id) => <option key={id}>{id}</option>)}
               </select>
             </label>
+            <div className="blocks-sec">
+              <h4>Áreas geradas por este modelo</h4>
+              {Object.entries(catalog.area_tags ?? {}).filter(([glob]) => globMatch(glob, selected.model)).map(([glob, tags]) => (
+                <div key={glob} className="blocks-sec">
+                  <div className="muted small" title={glob}>{glob === selected.model ? "Só este modelo" : `Vale para todos que casam com ${glob}`}</div>
+                  <div className="tag-grid">
+                    {KNOWN_TAGS.map((k) => (
+                      <label key={k.tag} className="check">
+                        <input type="checkbox" checked={tags.includes(k.tag)} onChange={(e) => data.changeCatalog((c) => ({ ...c, area_tags: { ...(c.area_tags ?? {}), [glob]: e.target.checked ? [...tags, k.tag] : tags.filter((t) => t !== k.tag) } }))} />
+                        <span className="swatch-dot" style={{ background: k.color }} /> {k.label}
+                      </label>
+                    ))}
+                  </div>
+                  <button onClick={() => data.changeCatalog((c) => { const a = { ...(c.area_tags ?? {}) }; delete a[glob]; return { ...c, area_tags: a }; })}
+                    title="Tira a regra: nenhuma instância desses modelos gera zona">Remover esta regra (sem zona para {glob === selected.model ? "este modelo" : "esses modelos"})</button>
+                </div>
+              ))}
+              {!Object.keys(catalog.area_tags ?? {}).some((glob) => globMatch(glob, selected.model)) && (
+                <div className="actions">
+                  <span className="muted small">Este modelo não gera zona.</span>
+                  <button onClick={() => data.changeCatalog((c) => ({ ...c, area_tags: { ...(c.area_tags ?? {}), [selected.model]: ["no_mount"] } }))}>Gerar zona (montaria não entra)</button>
+                </div>
+              )}
+              <label className="check" title="Só esta cópia do objeto fica sem a zona; as outras continuam com ela">
+                <input type="checkbox" checked={Boolean(selected.noAreas)} onChange={(e) => setInstanceNoAreas(selected.id, e.target.checked)} />
+                Sem zona só nesta instância (salve o mapa)
+              </label>
+              <div className="muted small">As regras ficam no catálogo (Salvar catálogo) e valem para todas as cópias do modelo. Depois, sincronize com o Godot.</div>
+            </div>
             <label className="check">
               <input type="checkbox" checked={showServer} onChange={(e) => setShowServer(e.target.checked)} />
               Ver as caixas que o servidor usa para este objeto

@@ -140,9 +140,10 @@ export function overlaps(a: Area, b: Area): boolean {
 
 export type WorldBox = { min: Vec3; max: Vec3 };
 
-export function deriveAreas(c: Catalog, instances: { id: string; model: string }[], boxes: Map<string, WorldBox>): Area[] {
+export function deriveAreas(c: Catalog, instances: { id: string; model: string; noAreas?: boolean }[], boxes: Map<string, WorldBox>): Area[] {
   const out: Area[] = [];
   for (const i of instances) {
+    if (i.noAreas) continue;
     const tags = areaTagsFor(c, i.model);
     const b = boxes.get(i.id);
     if (!tags.length || !b) continue;
