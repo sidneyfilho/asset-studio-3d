@@ -7,6 +7,7 @@ import { loadConfig, resolveWorkspace, saveConfig, type Workspace, type WsConfig
 import Card from "./Card";
 import Viewer from "./Viewer";
 import MapEditor from "./map/MapEditor";
+import CharacterView, { OUTFIT_DIR } from "./CharacterView";
 import SyncDialog from "./SyncDialog";
 import ConfigDialog from "./ConfigDialog";
 
@@ -53,6 +54,7 @@ export default function App() {
   const [editing, setEditing] = useState<Editing>(null);
   const [syncing, setSyncing] = useState(false);
   const [configuring, setConfiguring] = useState(false);
+  const [dressing, setDressing] = useState(false);
   // pastas que não são peças (ex.: cenas inteiras do Blender): ficam fora de "Todos" e da paleta do mapa;
   // guardadas na configuração da origem (notPieces)
   const hidden = ws?.config.notPieces ?? [];
@@ -143,6 +145,8 @@ export default function App() {
     );
   }
 
+  if (dressing) return <CharacterView ws={ws} models={models} onClose={() => setDressing(false)} />;
+
   if (editing) {
     return (
       <MapEditor
@@ -196,6 +200,12 @@ export default function App() {
           </div>
         ))}
         <button className="new-map" onClick={() => setEditing({ file: null })}>+ Novo mapa</button>
+        {models.some((m) => m.rel === OUTFIT_DIR + "body.glb") && (
+          <>
+            <h4>Personagem</h4>
+            <button className="new-map" onClick={() => setDressing(true)} title="Corpo base com as roupas trocáveis">Vestir personagem</button>
+          </>
+        )}
         <h4>Modelos</h4>
         <div className={folder === null ? "folder active" : "folder"}>
           <button className="folder-name" onClick={() => setFolder(null)}>

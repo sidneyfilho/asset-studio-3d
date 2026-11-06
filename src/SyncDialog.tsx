@@ -1,6 +1,7 @@
 // Janela do "Sincronizar com o Godot": primeiro mostra o que vai mudar, depois aplica e manda o Godot importar.
 import { useEffect, useState } from "react";
-import { godotImport, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
+import { adjustPathOf } from "./map/blocks";
+import { godotExportServerShapes, godotExportBlocks, godotImport, pathExists, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
 import { parseMap, toTscn, SCATTER_SCRIPT, SCATTER_SCRIPT_NAME } from "./map/mapFile";
 import type { Workspace } from "./workspace";
 
@@ -36,6 +37,14 @@ export default function SyncDialog({ ws, maps, godotExe, onClose }: Props) {
         const scenes = [{ name: SCATTER_SCRIPT_NAME, content: SCATTER_SCRIPT }];
         for (const m of maps) {
           const data = parseMap(await readText(m.abs));
+          // ajustes manuais dos bloqueios (T068, passo B): vão junto com a cena, e o jogo os lê
+          if (await pathExists(adjustPathOf(m.abs))) scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".adjust.json"), content: await readText(adjustPathOf(m.abs)) });
+          // regiões jogáveis do mapa (M2 da arquitetura de bloqueios): o jogo lê <mapa>.regions.json
+          const regionsFile = m.abs.replace(/\.map\.json$/i, ".regions.json");
+          if (await pathExists(regionsFile)) scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".regions.json"), content: await readText(regionsFile) });
+          // áreas configuráveis (M3/M4): o jogo lê <mapa>.areas.json
+          const areasFile = m.abs.replace(/\.map\.json$/i, ".areas.json");
+          if (await pathExists(areasFile)) scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".areas.json"), content: await readText(areasFile) });
           scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".tscn"), content: toTscn(data, ws.resPrefix, ws.mapsRes + SCATTER_SCRIPT_NAME) });
         }
         const r: SyncRequest = {
@@ -64,7 +73,24 @@ export default function SyncDialog({ ws, maps, godotExe, onClose }: Props) {
       setPlan(done);
       if (godotExe) {
         setStage("importing");
-        setLog(await godotImport(godotExe, ws.godot));
+        let text = await godotImport(godotExe, ws.godot);
+        // regrava os bloqueios (<mapa>.blocks.json) ao lado de cada mapa; se falhar, só avisa
+        for (const m of maps) {
+          const name = m.rel.replace(/.map.json$/i, "").split("/").pop()!;
+          try {
+            await godotExportBlocks(godotExe, ws.godot, name, ws.maps);
+          } catch (e) {
+            text += `
+Bloqueios de ${name} não regravados: ${String(e)}`;
+          }
+        }
+        // formas simples dos modelos para o servidor autoritativo (server_shapes.json, na pasta de modelos da origem)
+        try {
+          await godotExportServerShapes(godotExe, ws.godot, ws.assets);
+        } catch (e) {
+          text += `\nFormas do servidor não regravadas: ${String(e)}`;
+        }
+        setLog(text);
       } else {
         setLog("Importação do Godot pulada (defina o executável do Godot em Configurar).");
       }

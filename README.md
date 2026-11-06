@@ -159,3 +159,13 @@ inteiras feitas no Blender): ela sai de "Todos" e da paleta do mapa. ↑ desfaz.
 ## Autor
 
 Feito por [Sidney Filho](https://github.com/sidneyfilho) para o jogo Alvorland.
+
+## Bloqueios, áreas e regiões
+
+No editor de mapa, o botão **Regras** abre o catálogo de colisão, as áreas e as regiões do mapa, nos mesmos arquivos
+JSON que o jogo lê (com schema em `schemas/` da origem). Abas: **Colisão** (perfil de cada modelo e override por
+instância, formas desenhadas pelo catálogo, caixas que o servidor usa), **Áreas** (zona segura, construção bloqueada ou
+permitida, fazenda etc., por tags e prioridade), **Regiões** (área jogável e propriedades) e **Validação** (erros e
+avisos com o caminho do campo; erros impedem salvar). O botão **Bloqueios** mostra o que o jogo bloqueia hoje, por tipo.
+A sincronização também copia `<mapa>.areas.json`, `<mapa>.regions.json` e `<mapa>.adjust.json` e regrava
+`<mapa>.blocks.json` e `server_shapes.json`. Para validar os dados sem abrir o app: `npm run validate:data`.

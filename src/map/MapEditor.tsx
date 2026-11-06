@@ -5,6 +5,9 @@ import { pathExists, readText, writeText, type ModelEntry } from "../api";
 import Card, { modelName } from "../Card";
 import { joinPath, type Workspace } from "../workspace";
 import { MapScene, type GizmoMode, type Snap } from "./mapScene";
+import BlocksPanel, { type BlocksTab } from "../blocks/BlocksPanel";
+import { useBlocksData } from "../blocks/useBlocksData";
+import { BLOCK_TYPES, adjustPathOf, applyAdjust, blocksPathOf, parseAdjust, parseBlocks, serializeAdjust, type Adjust, type BlocksData } from "./blocks";
 import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance, type ScatterLayer, type ScatterPoint } from "./mapFile";
 
 type Props = {
@@ -215,15 +218,72 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   const sel = map.instances.find((i) => i.id === selected) ?? null;
   // colisão: destaca o que é sólido no jogo; e a altura do objeto selecionado (o modelo carrega depois, por isso o atraso)
   const [showSolid, setShowSolid] = useState(false);
-  const solidPrefixes = ws.config.solidPrefixes ?? [];
-  useEffect(() => sceneRef.current?.setCollisionView(showSolid ? solidPrefixes : null), [showSolid, solidPrefixes.join(",")]);
+  // catálogo de colisão, áreas e validação (M4): a colisão desenhada vem dos perfis do catálogo, como no jogo
+  // a validação só avisa dos modelos que este mapa usa (a biblioteca tem muitos que não entram nele)
+  const modelRels = useMemo(() => [...new Set(map.instances.map((i) => i.model))].sort(), [map.instances]);
+  const bdata = useBlocksData(ws, path, modelRels);
+  const [showRules, setShowRules] = useState(false);
+  const [rulesTab, setRulesTab] = useState<BlocksTab>("colisao");
+  useEffect(() => sceneRef.current?.setCollisionView(showSolid ? bdata.resolver : null), [showSolid, bdata.resolver]);
+  // bloqueios do jogo (T068): camada só de leitura, vinda de <mapa>.blocks.json (gerado pelo Godot ao sincronizar)
+  const [blocks, setBlocks] = useState<BlocksData | null>(null);
+  const [showBlocks, setShowBlocks] = useState(false);
+  const [blockOn, setBlockOn] = useState<Record<string, boolean>>({});
+  const [blockColor, setBlockColor] = useState<Record<string, string>>(() => Object.fromEntries(BLOCK_TYPES.map((t) => [t.id, t.color])));
+  useEffect(() => {
+    setBlocks(null);
+    if (!path) return;
+    const p = blocksPathOf(path);
+    pathExists(p).then((ok) => (ok ? readText(p).then((t) => setBlocks(parseBlocks(t))) : undefined)).catch(() => undefined);
+  }, [path]);
+  // ajustes manuais (passo B): ficam em <mapa>.adjust.json; o desenho já mostra o valor ajustado
+  const [adjust, setAdjust] = useState<Adjust>({});
+  const [adjustDirty, setAdjustDirty] = useState(false);
+  const [picking, setPicking] = useState<"rest_point" | "land_point" | null>(null);
+  useEffect(() => {
+    setAdjust({});
+    setAdjustDirty(false);
+    if (!path) return;
+    const p = adjustPathOf(path);
+    pathExists(p).then((ok) => (ok ? readText(p).then((t) => setAdjust(parseAdjust(t))) : undefined)).catch(() => undefined);
+  }, [path]);
+  const shown = useMemo(() => (blocks ? applyAdjust(blocks, adjust) : null), [blocks, adjust]);
+  const patchAdjust = (patch: Adjust) => {
+    setAdjust((a) => ({ ...a, ...patch }));
+    setAdjustDirty(true);
+  };
+  const pickPoint = (key: "rest_point" | "land_point") => {
+    setPicking(key);
+    setPlacing(null);
+    setBrushOn(false);
+    sceneRef.current?.setPickPoint((x, z) => {
+      patchAdjust({ [key]: [x, z] });
+      setPicking(null);
+    });
+  };
+  const cancelPick = () => {
+    sceneRef.current?.setPickPoint(null);
+    setPicking(null);
+  };
+  async function saveAdjust() {
+    if (!path) return;
+    try {
+      await writeText(adjustPathOf(path), serializeAdjust(adjust));
+      setAdjustDirty(false);
+      setMessage("Ajustes salvos. Use Sincronizar na tela inicial para o jogo usar.");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+  useEffect(() => sceneRef.current?.setBlocks(showBlocks ? shown : null, blockColor, blockOn), [shown, showBlocks]);
+  useEffect(() => sceneRef.current?.setBlockStyle(blockColor, blockOn), [blockColor, blockOn]);
   const [selInfo, setSelInfo] = useState<{ top: number; base: number; solid: boolean } | null>(null);
   useEffect(() => {
     setSelInfo(null);
     if (!selected) return;
-    const t = setTimeout(() => setSelInfo(sceneRef.current?.info(selected, solidPrefixes) ?? null), 400);
+    const t = setTimeout(() => setSelInfo(sceneRef.current?.info(selected, bdata.resolver) ?? null), 400);
     return () => clearTimeout(t);
-  }, [selected, sel?.pos[1], sel?.scale]);
+  }, [selected, sel?.pos[1], sel?.scale, bdata.resolver, sel?.collision]);
   const locked = map.instances.filter((i) => i.locked);
   const hiddenList = map.instances.filter((i) => hidden.has(i.id));
   // peças que o jogo esconde quando a personagem entra (telhado e paredes da frente)
@@ -332,12 +392,20 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
             <option value="free">Livre</option>
           </select>
         </label>
+        <button className={showRules ? "on toggle" : "toggle"} onClick={() => setShowRules(!showRules)}
+          title="Catálogo de colisão, áreas configuráveis e validação (os mesmos arquivos que o jogo lê)">
+          Regras{bdata.catalogIssues.some((i) => i.level === "erro") ? " ⚠" : ""}
+        </button>
         {outer.length > 0 && (
           <button className={showSolid ? "on toggle" : "toggle"} onClick={() => setShowSolid(!showSolid)}
             title="Mostra em vermelho as malhas que têm colisão no jogo (a personagem não atravessa; sobe degraus de até 35 cm)">
             Colisão
           </button>
         )}
+        <button className={showBlocks ? "on toggle" : "toggle"} disabled={!blocks} onClick={() => setShowBlocks(!showBlocks)}
+          title={blocks ? "Mostra por cima do mapa o que bloqueia a personagem, a mula e a voadora no jogo (só leitura)" : "Sem bloqueios deste mapa: sincronize com o Godot para gerar o arquivo .blocks.json"}>
+          Bloqueios
+        </button>
         {outer.length > 0 && (
           <button className={seeInside ? "on toggle" : "toggle"} onClick={() => setHiddenIds(outer.map((i) => i.id), !seeInside)}
             title="Esconde o telhado e as paredes da frente, como o jogo faz quando a personagem entra">
@@ -391,6 +459,67 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         </div>
       </div>
       <section className="inspector">
+        {showRules && (
+          <BlocksPanel data={bdata} instances={map.instances} selected={sel} scene={sceneRef.current} hasMapFile={Boolean(path)} tab={rulesTab} setTab={setRulesTab}
+            setInstanceCollision={(id, profile) => update(id, { collision: profile })} setMessage={setMessage} />
+        )}
+        {showBlocks && blocks && (
+          <div className="locked-list blocks-panel">
+            <h4>Bloqueios do jogo (só leitura)</h4>
+            {BLOCK_TYPES.map((t) => (
+              <label key={t.id} className="block-row" title={t.hint}>
+                <input type="checkbox" checked={blockOn[t.id] !== false} onChange={(e) => setBlockOn({ ...blockOn, [t.id]: e.target.checked })} />
+                <input type="color" value={blockColor[t.id]} onChange={(e) => setBlockColor({ ...blockColor, [t.id]: e.target.value })} />
+                {t.label}
+              </label>
+            ))}
+            <div className="muted small">Cores e interruptores são só para ver. O arquivo de bloqueios é regerado ao sincronizar.</div>
+            <h4>Ajustes manuais</h4>
+            {shown && (
+              <div className="fields">
+                {(
+                  [
+                    ["Limite do mapa (m do centro)", "half_extent", shown.bounds.half_extent, 1],
+                    ["Raio de passeio da mula (m)", "wander_radius", shown.mule.wander_radius, 0.5],
+                    ["Folga das áreas proibidas (m)", "zone_margin", shown.mount_zones.margin, 0.05],
+                    ["Altura máxima da voadora (m)", "max_altitude", shown.flyer.max_altitude, 0.5],
+                  ] as const
+                ).map(([label, key, value, step]) => (
+                  <label key={key}>
+                    {label}
+                    <input type="number" step={step} min={0} value={Number(value.toFixed(3))}
+                      onChange={(e) => patchAdjust({ [key]: Math.max(0, Number(e.target.value)) })} />
+                  </label>
+                ))}
+                {(
+                  [
+                    ["Descanso da mula", "rest_point", shown.mule.rest_point],
+                    ["Pouso da voadora", "land_point", shown.flyer.land_point],
+                  ] as const
+                ).map(([label, key, p]) => (
+                  <div key={key} className="point-row">
+                    <span>{label}</span>
+                    {(["X", "Z"] as const).map((axis, k) => (
+                      <input key={axis} type="number" step={0.5} title={axis} value={Number(p[k * 2].toFixed(2))}
+                        onChange={(e) => {
+                          const cur: [number, number] = [p[0], p[2]];
+                          cur[k] = Number(e.target.value);
+                          patchAdjust({ [key]: cur });
+                        }} />
+                    ))}
+                    <button className={picking === key ? "on toggle" : "toggle"} onClick={() => (picking === key ? cancelPick() : pickPoint(key))}
+                      title="Clique no chão para marcar o ponto">Marcar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="actions">
+              <button className="primary" onClick={saveAdjust} disabled={!adjustDirty || !path}>Salvar ajustes</button>
+              <button onClick={() => { setAdjust({}); setAdjustDirty(true); }} title="Tira os ajustes: depois de salvar e sincronizar, o jogo volta aos valores do código">Voltar ao padrão</button>
+            </div>
+            <div className="muted small">Salve e depois sincronize com o Godot: o jogo lê os ajustes de o arquivo .adjust.json do mapa. {adjustDirty ? "Há ajustes não salvos." : ""}</div>
+          </div>
+        )}
         {brushOn ? (
           <BrushPanel brush={brush} setBrush={setBrush} layers={map.scatter}
             clearLayer={(id) => change((m) => ({ ...m, scatter: m.scatter.filter((l) => l.id !== id) }))} />
