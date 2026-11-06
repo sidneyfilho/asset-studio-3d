@@ -39,6 +39,9 @@ export default function SyncDialog({ ws, maps, godotExe, onClose }: Props) {
           const data = parseMap(await readText(m.abs));
           // ajustes manuais dos bloqueios (T068, passo B): vão junto com a cena, e o jogo os lê
           if (await pathExists(adjustPathOf(m.abs))) scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".adjust.json"), content: await readText(adjustPathOf(m.abs)) });
+          // regiões jogáveis do mapa (M2 da arquitetura de bloqueios): o jogo lê <mapa>.regions.json
+          const regionsFile = m.abs.replace(/\.map\.json$/i, ".regions.json");
+          if (await pathExists(regionsFile)) scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".regions.json"), content: await readText(regionsFile) });
           scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".tscn"), content: toTscn(data, ws.resPrefix, ws.mapsRes + SCATTER_SCRIPT_NAME) });
         }
         const r: SyncRequest = {
