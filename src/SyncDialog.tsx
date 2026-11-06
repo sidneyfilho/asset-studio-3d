@@ -1,6 +1,7 @@
 // Janela do "Sincronizar com o Godot": primeiro mostra o que vai mudar, depois aplica e manda o Godot importar.
 import { useEffect, useState } from "react";
-import { godotExportBlocks, godotImport, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
+import { adjustPathOf } from "./map/blocks";
+import { godotExportBlocks, godotImport, pathExists, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
 import { parseMap, toTscn, SCATTER_SCRIPT, SCATTER_SCRIPT_NAME } from "./map/mapFile";
 import type { Workspace } from "./workspace";
 
@@ -36,6 +37,8 @@ export default function SyncDialog({ ws, maps, godotExe, onClose }: Props) {
         const scenes = [{ name: SCATTER_SCRIPT_NAME, content: SCATTER_SCRIPT }];
         for (const m of maps) {
           const data = parseMap(await readText(m.abs));
+          // ajustes manuais dos bloqueios (T068, passo B): vão junto com a cena, e o jogo os lê
+          if (await pathExists(adjustPathOf(m.abs))) scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".adjust.json"), content: await readText(adjustPathOf(m.abs)) });
           scenes.push({ name: m.rel.replace(/\.map\.json$/i, ".tscn"), content: toTscn(data, ws.resPrefix, ws.mapsRes + SCATTER_SCRIPT_NAME) });
         }
         const r: SyncRequest = {

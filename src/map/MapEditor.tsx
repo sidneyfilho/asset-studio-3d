@@ -5,7 +5,7 @@ import { pathExists, readText, writeText, type ModelEntry } from "../api";
 import Card, { modelName } from "../Card";
 import { joinPath, type Workspace } from "../workspace";
 import { MapScene, type GizmoMode, type Snap } from "./mapScene";
-import { BLOCK_TYPES, blocksPathOf, parseBlocks, type BlocksData } from "./blocks";
+import { BLOCK_TYPES, adjustPathOf, applyAdjust, blocksPathOf, parseAdjust, parseBlocks, serializeAdjust, type Adjust, type BlocksData } from "./blocks";
 import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance, type ScatterLayer, type ScatterPoint } from "./mapFile";
 
 type Props = {
@@ -229,7 +229,46 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
     const p = blocksPathOf(path);
     pathExists(p).then((ok) => (ok ? readText(p).then((t) => setBlocks(parseBlocks(t))) : undefined)).catch(() => undefined);
   }, [path]);
-  useEffect(() => sceneRef.current?.setBlocks(showBlocks ? blocks : null, blockColor, blockOn), [blocks, showBlocks]);
+  // ajustes manuais (passo B): ficam em <mapa>.adjust.json; o desenho já mostra o valor ajustado
+  const [adjust, setAdjust] = useState<Adjust>({});
+  const [adjustDirty, setAdjustDirty] = useState(false);
+  const [picking, setPicking] = useState<"rest_point" | "land_point" | null>(null);
+  useEffect(() => {
+    setAdjust({});
+    setAdjustDirty(false);
+    if (!path) return;
+    const p = adjustPathOf(path);
+    pathExists(p).then((ok) => (ok ? readText(p).then((t) => setAdjust(parseAdjust(t))) : undefined)).catch(() => undefined);
+  }, [path]);
+  const shown = useMemo(() => (blocks ? applyAdjust(blocks, adjust) : null), [blocks, adjust]);
+  const patchAdjust = (patch: Adjust) => {
+    setAdjust((a) => ({ ...a, ...patch }));
+    setAdjustDirty(true);
+  };
+  const pickPoint = (key: "rest_point" | "land_point") => {
+    setPicking(key);
+    setPlacing(null);
+    setBrushOn(false);
+    sceneRef.current?.setPickPoint((x, z) => {
+      patchAdjust({ [key]: [x, z] });
+      setPicking(null);
+    });
+  };
+  const cancelPick = () => {
+    sceneRef.current?.setPickPoint(null);
+    setPicking(null);
+  };
+  async function saveAdjust() {
+    if (!path) return;
+    try {
+      await writeText(adjustPathOf(path), serializeAdjust(adjust));
+      setAdjustDirty(false);
+      setMessage("Ajustes salvos. Use Sincronizar na tela inicial para o jogo usar.");
+    } catch (e) {
+      setMessage(String(e));
+    }
+  }
+  useEffect(() => sceneRef.current?.setBlocks(showBlocks ? shown : null, blockColor, blockOn), [shown, showBlocks]);
   useEffect(() => sceneRef.current?.setBlockStyle(blockColor, blockOn), [blockColor, blockOn]);
   const [selInfo, setSelInfo] = useState<{ top: number; base: number; solid: boolean } | null>(null);
   useEffect(() => {
@@ -419,7 +458,51 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
                 {t.label}
               </label>
             ))}
-            <div className="muted small">Pouso da voadora: altura máxima {blocks.flyer.max_altitude} m · passeio da mula: {blocks.mule.wander_radius} m. Valores do código do jogo; o arquivo é regerado ao sincronizar.</div>
+            <div className="muted small">Cores e interruptores são só para ver. O arquivo de bloqueios é regerado ao sincronizar.</div>
+            <h4>Ajustes manuais</h4>
+            {shown && (
+              <div className="fields">
+                {(
+                  [
+                    ["Limite do mapa (m do centro)", "half_extent", shown.bounds.half_extent, 1],
+                    ["Raio de passeio da mula (m)", "wander_radius", shown.mule.wander_radius, 0.5],
+                    ["Folga das áreas proibidas (m)", "zone_margin", shown.mount_zones.margin, 0.05],
+                    ["Altura máxima da voadora (m)", "max_altitude", shown.flyer.max_altitude, 0.5],
+                  ] as const
+                ).map(([label, key, value, step]) => (
+                  <label key={key}>
+                    {label}
+                    <input type="number" step={step} min={0} value={Number(value.toFixed(3))}
+                      onChange={(e) => patchAdjust({ [key]: Math.max(0, Number(e.target.value)) })} />
+                  </label>
+                ))}
+                {(
+                  [
+                    ["Descanso da mula", "rest_point", shown.mule.rest_point],
+                    ["Pouso da voadora", "land_point", shown.flyer.land_point],
+                  ] as const
+                ).map(([label, key, p]) => (
+                  <div key={key} className="point-row">
+                    <span>{label}</span>
+                    {(["X", "Z"] as const).map((axis, k) => (
+                      <input key={axis} type="number" step={0.5} title={axis} value={Number(p[k * 2].toFixed(2))}
+                        onChange={(e) => {
+                          const cur: [number, number] = [p[0], p[2]];
+                          cur[k] = Number(e.target.value);
+                          patchAdjust({ [key]: cur });
+                        }} />
+                    ))}
+                    <button className={picking === key ? "on toggle" : "toggle"} onClick={() => (picking === key ? cancelPick() : pickPoint(key))}
+                      title="Clique no chão para marcar o ponto">Marcar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="actions">
+              <button className="primary" onClick={saveAdjust} disabled={!adjustDirty || !path}>Salvar ajustes</button>
+              <button onClick={() => { setAdjust({}); setAdjustDirty(true); }} title="Tira os ajustes: depois de salvar e sincronizar, o jogo volta aos valores do código">Voltar ao padrão</button>
+            </div>
+            <div className="muted small">Salve e depois sincronize com o Godot: o jogo lê os ajustes de o arquivo .adjust.json do mapa. {adjustDirty ? "Há ajustes não salvos." : ""}</div>
           </div>
         )}
         {brushOn ? (

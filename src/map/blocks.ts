@@ -51,3 +51,70 @@ export function parseBlocks(text: string): BlocksData {
   if (!d || !d.bounds || !Array.isArray(d.solids)) throw new Error("arquivo de bloqueios inválido");
   return d as BlocksData;
 }
+
+// ---------- ajustes manuais (passo B da T068)
+// O Studio grava <mapa>.adjust.json ao lado do .map.json; a sincronização o copia para o Godot e o jogo lê.
+// Só as chaves presentes mudam o jogo; as demais seguem o código dele. O desenho usa o valor ajustado já ao editar.
+
+export type Adjust = {
+  half_extent?: number;
+  rest_point?: [number, number];
+  wander_radius?: number;
+  zone_margin?: number;
+  land_point?: [number, number];
+  max_altitude?: number;
+};
+
+export const adjustPathOf = (mapFile: string) => mapFile.replace(/\.map\.json$/i, ".adjust.json");
+
+export function parseAdjust(text: string): Adjust {
+  const d = JSON.parse(text);
+  const pt = (p: unknown): [number, number] | undefined => (Array.isArray(p) && p.length >= 2 ? [Number(p[0]), Number(p[1])] : undefined);
+  const n = (v: unknown) => (typeof v === "number" ? v : undefined);
+  const out: Adjust = {
+    half_extent: n(d?.bounds?.half_extent),
+    rest_point: pt(d?.mule?.rest_point),
+    wander_radius: n(d?.mule?.wander_radius),
+    zone_margin: n(d?.mount_zones?.margin),
+    land_point: pt(d?.flyer?.land_point),
+    max_altitude: n(d?.flyer?.max_altitude),
+  };
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined)) as Adjust;
+}
+
+/** Mesmo formato lido pelo jogo (scripts/block_adjust.gd) */
+export function serializeAdjust(a: Adjust): string {
+  const d: Record<string, Record<string, unknown>> = {};
+  const put = (sec: string, key: string, v: unknown) => {
+    if (v !== undefined) (d[sec] ??= {})[key] = v;
+  };
+  put("bounds", "half_extent", a.half_extent);
+  put("mule", "rest_point", a.rest_point);
+  put("mule", "wander_radius", a.wander_radius);
+  put("mount_zones", "margin", a.zone_margin);
+  put("flyer", "land_point", a.land_point);
+  put("flyer", "max_altitude", a.max_altitude);
+  return JSON.stringify({ version: 1, ...d }, null, 2) + "\n";
+}
+
+/** Os bloqueios com os ajustes por cima (o que o jogo vai usar depois de sincronizar) */
+export function applyAdjust(b: BlocksData, a: Adjust): BlocksData {
+  const h = a.half_extent ?? b.bounds.half_extent;
+  const grow = (a.zone_margin ?? b.mount_zones.margin) - b.mount_zones.margin;
+  return {
+    ...b,
+    bounds: { half_extent: h, min: [-h, -h], max: [h, h] },
+    mount_zones: {
+      margin: b.mount_zones.margin + grow,
+      zones: grow === 0 ? b.mount_zones.zones : b.mount_zones.zones.map((z) => ({ min: [z.min[0] - grow, z.min[1] - grow], max: [z.max[0] + grow, z.max[1] + grow] })),
+    },
+    mule: {
+      rest_point: a.rest_point ? [a.rest_point[0], b.mule.rest_point[1], a.rest_point[1]] : b.mule.rest_point,
+      wander_radius: a.wander_radius ?? b.mule.wander_radius,
+    },
+    flyer: {
+      land_point: a.land_point ? [a.land_point[0], b.flyer.land_point[1], a.land_point[1]] : b.flyer.land_point,
+      max_altitude: a.max_altitude ?? b.flyer.max_altitude,
+    },
+  };
+}

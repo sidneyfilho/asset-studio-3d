@@ -229,6 +229,14 @@ export class MapScene {
   }
 
   // clique = apertar e soltar sem arrastar; arrastar a seta de mover não conta como clique
+  /** Escolher um ponto no chão (ajustes dos bloqueios): o próximo clique chama cb e desliga; null cancela */
+  setPickPoint(cb: ((x: number, z: number) => void) | null) {
+    this.pickCb = cb;
+    this.renderer.domElement.style.cursor = cb ? "crosshair" : "";
+  }
+
+  private pickCb: ((x: number, z: number) => void) | null = null;
+
   private onPointerUp = (e: PointerEvent) => {
     if (this.painting) {
       this.painting = false;
@@ -241,6 +249,15 @@ export class MapScene {
     this.downAt = null;
     if (!d || e.button !== 0 || this.dragging || this.gizmo.axis) return;
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+    if (this.pickCb) {
+      const p = this.groundPoint(e);
+      if (p) {
+        const cb = this.pickCb;
+        this.setPickPoint(null);
+        cb(Math.round(p.x * 10) / 10, Math.round(p.z * 10) / 10);
+      }
+      return;
+    }
     if (this.ghost) {
       const p = this.groundPoint(e);
       if (p) {

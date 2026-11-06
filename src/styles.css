@@ -127,3 +127,6 @@ label.inline { display: inline-flex; gap: 6px; align-items: center; }
 
 .block-row { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 0; }
 .block-row input[type="color"] { width: 22px; height: 18px; padding: 0; border: 0; background: none; }
+.point-row { display: flex; align-items: center; gap: 4px; font-size: 12px; grid-column: 1 / -1; }
+.point-row span { flex: 1; }
+.point-row input { width: 58px; }
