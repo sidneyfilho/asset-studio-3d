@@ -168,7 +168,8 @@ pub fn run() {
             save_thumb,
             sync::sync_godot,
             sync::godot_import,
-            sync::godot_export_blocks
+            sync::godot_export_blocks,
+            sync::godot_export_server_shapes
         ])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o Asset Studio 3D");

@@ -170,6 +170,14 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
                   {SHAPES.map((s) => <option key={s}>{s}</option>)}
                 </select>
               </label>
+              {(p.shape === "trimesh" || p.shape === "convex") && (
+                <label>Servidor (autoritativo)
+                  <select value={p.server ?? ""} onChange={(e) => patchProfile(profileId, { server: (e.target.value || undefined) as Profile["server"] })}>
+                    <option value="">(nenhum: o servidor não reproduz)</option>
+                    <option value="footprint">pegada gerada do modelo</option>
+                  </select>
+                </label>
+              )}
               <label>Tamanho
                 <select value={p.fit ?? "auto"} onChange={(e) => patchProfile(profileId, { fit: e.target.value as Profile["fit"] })}>
                   <option value="auto">auto (mede o modelo)</option>

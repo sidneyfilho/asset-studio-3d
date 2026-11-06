@@ -1,7 +1,7 @@
 // Janela do "Sincronizar com o Godot": primeiro mostra o que vai mudar, depois aplica e manda o Godot importar.
 import { useEffect, useState } from "react";
 import { adjustPathOf } from "./map/blocks";
-import { godotExportBlocks, godotImport, pathExists, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
+import { godotExportServerShapes, godotExportBlocks, godotImport, pathExists, readText, syncGodot, type ModelEntry, type SyncReport, type SyncRequest } from "./api";
 import { parseMap, toTscn, SCATTER_SCRIPT, SCATTER_SCRIPT_NAME } from "./map/mapFile";
 import type { Workspace } from "./workspace";
 
@@ -83,6 +83,12 @@ export default function SyncDialog({ ws, maps, godotExe, onClose }: Props) {
             text += `
 Bloqueios de ${name} não regravados: ${String(e)}`;
           }
+        }
+        // formas simples dos modelos para o servidor autoritativo (server_shapes.json, na pasta de modelos da origem)
+        try {
+          await godotExportServerShapes(godotExe, ws.godot, ws.assets);
+        } catch (e) {
+          text += `\nFormas do servidor não regravadas: ${String(e)}`;
         }
         setLog(text);
       } else {
