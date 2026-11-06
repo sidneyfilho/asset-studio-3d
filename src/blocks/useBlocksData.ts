@@ -5,8 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { pathExists, readText, writeText } from "../api";
 import { joinPath, type Workspace } from "../workspace";
 import { emptyCatalog, parseCatalog, resolveProfile, serializeCatalog, lintCatalog, validateWithSchema, type Catalog, type Issue } from "./catalog";
+import { emptyRegions, lintRegions, parseRegions, serializeRegions, type RegionsFile, type Region } from "./regions";
 import { areasPathOf, emptyAreas, parseAreas, regionsPathOf, serializeAreas, lintAreas, shapeIssues, type Area, type AreasFile, type RegionRect, type WorldBox } from "./areas";
-import type { Profile } from "./catalog";
+import type { Profile, Vec3 } from "./catalog";
 
 export const catalogPath = (ws: Workspace) => joinPath(ws.assets, "collision_catalog.json");
 const schemaPath = (ws: Workspace, name: string) => joinPath(ws.root, `schemas\\${name}`);
@@ -19,14 +20,19 @@ async function readJson(p: string): Promise<unknown | null> {
   }
 }
 
+/** server_shapes.json (gerado ao sincronizar): caixas [x0, z0, x1, z1, y0, y1] no espaço do modelo, por modelo */
+export type ServerShapes = { version: number; cell: number; tolerance: number; models: Record<string, { profile: string; aabb: { min: Vec3; max: Vec3 }; boxes?: number[][] }> };
+
 export function useBlocksData(ws: Workspace, mapFile: string | null, modelRels: string[]) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [catalogDirty, setCatalogDirty] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [areas, setAreasState] = useState<AreasFile>(emptyAreas());
   const [areasDirty, setAreasDirty] = useState(false);
-  const [regions, setRegions] = useState<RegionRect[]>([]);
-  const [schemas, setSchemas] = useState<{ catalog: unknown | null; areas: unknown | null }>({ catalog: null, areas: null });
+  const [regionsFile, setRegionsFile] = useState<RegionsFile>(emptyRegions());
+  const [regionsDirty, setRegionsDirty] = useState(false);
+  const [serverShapes, setServerShapes] = useState<ServerShapes | null>(null);
+  const [schemas, setSchemas] = useState<{ catalog: unknown | null; areas: unknown | null; regions: unknown | null }>({ catalog: null, areas: null, regions: null });
 
   // catálogo e schemas (valem para todos os mapas da origem)
   useEffect(() => {
@@ -41,7 +47,12 @@ export function useBlocksData(ws: Workspace, mapFile: string | null, modelRels: 
         setCatalogError(`${p}: ${String(e)}`);
       }
       setCatalogDirty(false);
-      setSchemas({ catalog: await readJson(schemaPath(ws, "collision_catalog.schema.json")), areas: await readJson(schemaPath(ws, "areas.schema.json")) });
+      setSchemas({
+        catalog: await readJson(schemaPath(ws, "collision_catalog.schema.json")),
+        areas: await readJson(schemaPath(ws, "areas.schema.json")),
+        regions: await readJson(schemaPath(ws, "regions.schema.json")),
+      });
+      setServerShapes((await readJson(joinPath(ws.assets, "server_shapes.json"))) as ServerShapes | null);
     })();
   }, [ws.assets, ws.root]);
 
@@ -49,7 +60,8 @@ export function useBlocksData(ws: Workspace, mapFile: string | null, modelRels: 
   useEffect(() => {
     setAreasState(emptyAreas());
     setAreasDirty(false);
-    setRegions([]);
+    setRegionsFile(emptyRegions());
+    setRegionsDirty(false);
     if (!mapFile) return;
     (async () => {
       try {
@@ -58,10 +70,12 @@ export function useBlocksData(ws: Workspace, mapFile: string | null, modelRels: 
       } catch {
         /* arquivo inválido: o erro aparece na validação ao tentar salvar */
       }
-      const r = (await readJson(regionsPathOf(mapFile))) as { regions?: { id: string; bounds?: { min?: [number, number]; max?: [number, number] } }[] } | null;
-      setRegions(
-        (r?.regions ?? []).filter((x) => x.bounds?.min && x.bounds?.max).map((x) => ({ id: x.id, min: x.bounds!.min!, max: x.bounds!.max! })),
-      );
+      try {
+        const rp = regionsPathOf(mapFile);
+        if (await pathExists(rp)) setRegionsFile(parseRegions(await readText(rp)));
+      } catch {
+        /* arquivo inválido: o erro aparece na validação */
+      }
     })();
   }, [mapFile]);
 
@@ -69,6 +83,26 @@ export function useBlocksData(ws: Workspace, mapFile: string | null, modelRels: 
     setCatalog((c) => (c ? fn(c) : c));
     setCatalogDirty(true);
   }, []);
+  const changeRegions = useCallback((fn: (r: Region[]) => Region[]) => {
+    setRegionsFile((f) => ({ ...f, regions: fn(f.regions) }));
+    setRegionsDirty(true);
+  }, []);
+  const regions = useMemo<RegionRect[]>(
+    () => regionsFile.regions.filter((x) => x.bounds?.min && x.bounds?.max).map((x) => ({ id: x.id, min: x.bounds.min, max: x.bounds.max })),
+    [regionsFile],
+  );
+  const regionIssues = useMemo<Issue[]>(() => {
+    const out = schemas.regions ? validateWithSchema(schemas.regions, { version: 1, regions: regionsFile.regions }) : [];
+    return dedupe([...out, ...lintRegions(regionsFile.regions)]);
+  }, [regionsFile, schemas.regions]);
+  async function saveRegions(): Promise<string> {
+    if (!mapFile) return "salve o mapa antes de salvar as regiões";
+    const errs = regionIssues.filter((i) => i.level === "erro");
+    if (errs.length) return `Regiões com ${errs.length} erro(s): corrija na aba Validação antes de salvar.`;
+    await writeText(regionsPathOf(mapFile), serializeRegions(regionsFile));
+    setRegionsDirty(false);
+    return "Regiões salvas. Sincronize com o Godot para o jogo usar.";
+  }
   const changeAreas = useCallback((fn: (a: Area[]) => Area[]) => {
     setAreasState((f) => ({ ...f, areas: fn(f.areas) }));
     setAreasDirty(true);
@@ -108,7 +142,7 @@ export function useBlocksData(ws: Workspace, mapFile: string | null, modelRels: 
     return dedupe(out);
   }
 
-  return { catalog, catalogDirty, catalogError, areas, areasDirty, regions, resolver, catalogIssues, changeCatalog, changeAreas, saveCatalog, saveAreas, areaIssues, shapeIssues };
+  return { regionsFile, regionsDirty, regionIssues, changeRegions, saveRegions, serverShapes, catalog, catalogDirty, catalogError, areas, areasDirty, regions, resolver, catalogIssues, changeCatalog, changeAreas, saveCatalog, saveAreas, areaIssues, shapeIssues };
 }
 
 function dedupe(list: Issue[]): Issue[] {

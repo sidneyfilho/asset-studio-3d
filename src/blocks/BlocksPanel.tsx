@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import type { MapInstance } from "../map/mapFile";
 import type { MapScene } from "../map/mapScene";
 import { resolveProfile, SHAPES, BLOCK_LAYERS, type Issue, type Profile, type Vec3 } from "./catalog";
+import type { Region } from "./regions";
 import { deriveAreas, KNOWN_TAGS, tagColor, type Area, type AreaShape, type WorldBox } from "./areas";
 import type { useBlocksData } from "./useBlocksData";
 
-export type BlocksTab = "colisao" | "areas" | "validacao";
+export type BlocksTab = "colisao" | "areas" | "regioes" | "validacao";
 type Data = ReturnType<typeof useBlocksData>;
 
 type Props = {
@@ -48,6 +49,10 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
   const [tagDraft, setTagDraft] = useState("");
   const [propsText, setPropsText] = useState("");
   const [propsError, setPropsError] = useState<string | null>(null);
+  const [regionId, setRegionId] = useState<string | null>(null);
+  const [showServer, setShowServer] = useState(false);
+  const [regionProps, setRegionProps] = useState("");
+  const [regionPropsError, setRegionPropsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (catalog && (!profileId || !catalog.profiles[profileId])) setProfileId(Object.keys(catalog.profiles)[0] ?? "");
@@ -77,6 +82,32 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
     return () => scene?.setAreas([]);
   }, [tab, derived, authored, areaId, scene]);
 
+  // contorno das regiões: só na aba Regiões
+  useEffect(() => {
+    if (tab !== "regioes") {
+      scene?.setRegions([]);
+      return;
+    }
+    scene?.setRegions(data.regionsFile.regions.filter((r) => r.bounds?.min && r.bounds?.max).map((r) => ({ id: r.id, min: r.bounds.min, max: r.bounds.max, selected: r.id === regionId })));
+    return () => scene?.setRegions([]);
+  }, [tab, data.regionsFile, regionId, scene]);
+
+  // caixas que o servidor usa para o objeto selecionado (do server_shapes.json gerado ao sincronizar)
+  useEffect(() => {
+    const entry = selected ? data.serverShapes?.models[selected.model] : undefined;
+    if (tab !== "colisao" || !showServer || !selected || !entry?.boxes) {
+      scene?.setServerBoxes(null, [0, 0, 0], 0, 1);
+      return;
+    }
+    scene?.setServerBoxes(entry.boxes, selected.pos, selected.rotY, selected.scale);
+    return () => scene?.setServerBoxes(null, [0, 0, 0], 0, 1);
+  }, [tab, showServer, selected, data.serverShapes, scene]);
+
+  useEffect(() => {
+    setRegionProps(data.regionsFile.regions.find((r) => r.id === regionId)?.properties ? JSON.stringify(data.regionsFile.regions.find((r) => r.id === regionId)!.properties) : "");
+    setRegionPropsError(null);
+  }, [regionId]);
+
   useEffect(() => {
     setPropsText(area?.properties ? JSON.stringify(area.properties) : "");
     setPropsError(null);
@@ -84,7 +115,7 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
 
   const instanceBoxes = useMemo(() => instances.filter((i) => boxes.has(i.id)).map((i) => ({ id: i.id, model: i.model, box: boxes.get(i.id)! })), [instances, boxes]);
   const areaIssues = useMemo(() => data.areaIssues(authored, derived, instanceBoxes), [authored, derived, instanceBoxes, data.areaIssues]);
-  const allIssues = useMemo(() => [...data.catalogIssues, ...areaIssues], [data.catalogIssues, areaIssues]);
+  const allIssues = useMemo(() => [...data.catalogIssues, ...areaIssues, ...data.regionIssues], [data.catalogIssues, areaIssues, data.regionIssues]);
   const errors = allIssues.filter((i) => i.level === "erro").length;
 
   const modelRels = useMemo(() => [...new Set(instances.map((i) => i.model))].sort(), [instances]);
@@ -144,6 +175,21 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
                 {Object.keys(catalog.profiles).map((id) => <option key={id}>{id}</option>)}
               </select>
             </label>
+            <label className="check">
+              <input type="checkbox" checked={showServer} onChange={(e) => setShowServer(e.target.checked)} />
+              Ver as caixas que o servidor usa para este objeto
+            </label>
+            {showServer && (
+              <div className="muted small">
+                {data.serverShapes?.models[selected.model]?.boxes
+                  ? `${data.serverShapes.models[selected.model].boxes!.length} caixa(s), tolerância do servidor ${data.serverShapes.tolerance} m.`
+                  : data.serverShapes?.models[selected.model]
+                    ? "Este perfil não tem caixas de servidor (as formas primitivas o servidor calcula com o perfil e a caixa do modelo)."
+                    : res && (res.profile.shape === "none" || res.profile.shape === "terrain" || !res.profile.shape)
+                      ? "Este objeto não tem colisão (perfil sem forma): o servidor também não o bloqueia."
+                      : "Sem dados para este modelo: sincronize com o Godot para gerar o server_shapes.json."}
+              </div>
+            )}
             <div className="muted small">Precedência: instância, depois modelo, categoria (o primeiro glob que casa) e padrão. O override vai para o mapa (salve o mapa).</div>
           </div>
         ) : (
@@ -174,7 +220,7 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
                 <label>Servidor (autoritativo)
                   <select value={p.server ?? ""} onChange={(e) => patchProfile(profileId, { server: (e.target.value || undefined) as Profile["server"] })}>
                     <option value="">(nenhum: o servidor não reproduz)</option>
-                    <option value="footprint">pegada gerada do modelo</option>
+                    <option value="boxes">caixas geradas do modelo</option>
                   </select>
                 </label>
               )}
@@ -341,23 +387,89 @@ export default function BlocksPanel({ data, instances, selected, scene, hasMapFi
     );
   }
 
+  const patchRegion = (id: string, patch: Partial<Region>) => data.changeRegions((l) => l.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  function regioesTab() {
+    const region = data.regionsFile.regions.find((r) => r.id === regionId) ?? null;
+    const nextId = () => {
+      let n = 1;
+      while (data.regionsFile.regions.some((r) => r.id === `regiao_${n}`)) n++;
+      return `regiao_${n}`;
+    };
+    const mine = data.regionIssues.filter((i) => region && i.where.includes(`regions[${region.id}`));
+    return (
+      <>
+        <div className="actions">
+          <button onClick={() => {
+            const id = nextId();
+            data.changeRegions((l) => [...l, { id, bounds: { type: "rect", min: [-36, -36], max: [36, 36] } }]);
+            setRegionId(id);
+          }}>Nova região</button>
+          <button className="primary" disabled={!data.regionsDirty || !hasMapFile} title={hasMapFile ? "" : "Salve o mapa primeiro"} onClick={() => run(data.saveRegions())}>Salvar regiões</button>
+        </div>
+        <div className="muted small">{data.regionsDirty ? "Há mudanças não salvas. " : ""}A área jogável é a união das regiões; o jogo cria as paredes nas bordas. Sem regiões vale 36 m.</div>
+        <div className="blocks-sec">
+          <h4>Regiões ({data.regionsFile.regions.length})</h4>
+          {data.regionsFile.regions.map((r) => (
+            <button key={r.id} className={r.id === regionId ? "link sel" : "link"} onClick={() => setRegionId(r.id)}>{r.id}</button>
+          ))}
+        </div>
+        {region && (
+          <div className="blocks-sec">
+            <h4>Região {region.id}</h4>
+            <div className="fields">
+              <label>Id<input value={region.id} onChange={(e) => { const nid = e.target.value.replace(/\s/g, "_"); patchRegion(region.id, { id: nid }); setRegionId(nid); }} /></label>
+              {([["min", 0, "Canto mínimo x (m)"], ["min", 1, "Canto mínimo z (m)"], ["max", 0, "Canto máximo x (m)"], ["max", 1, "Canto máximo z (m)"]] as const).map(([k, i, label]) => (
+                <label key={label}>{label}
+                  <input type="number" step={1} value={region.bounds[k][i]} onChange={(e) => {
+                    const b = { ...region.bounds, [k]: [...region.bounds[k]] as [number, number] };
+                    b[k][i] = num(e.target.value, region.bounds[k][i]);
+                    patchRegion(region.id, { bounds: b });
+                  }} />
+                </label>
+              ))}
+              <label>Altura máxima da voadora (m)
+                <input type="number" step={0.5} value={Number(region.properties?.flyer_max_altitude ?? 8)} onChange={(e) => patchRegion(region.id, { properties: { ...(region.properties ?? {}), flyer_max_altitude: num(e.target.value, 8) } })} />
+              </label>
+            </div>
+            <label>Outras propriedades (JSON)
+              <textarea rows={2} value={regionProps} placeholder='{"imposto": 3}' onChange={(e) => {
+                setRegionProps(e.target.value);
+                try {
+                  const v = e.target.value.trim() ? JSON.parse(e.target.value) : {};
+                  if (v && typeof v === "object" && !Array.isArray(v)) { setRegionPropsError(null); patchRegion(region.id, { properties: v }); } else setRegionPropsError("esperado um objeto {…}");
+                } catch (er) { setRegionPropsError(`JSON inválido: ${String((er as Error).message)}`); }
+              }} />
+            </label>
+            {regionPropsError && <div className="error">{regionPropsError}</div>}
+            {mine.length > 0 && <IssueList issues={mine} />}
+            <div className="actions"><button onClick={() => { data.changeRegions((l) => l.filter((r) => r.id !== region.id)); setRegionId(null); }}>Apagar região</button></div>
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="blocks-panel2">
       <div className="tabs">
         <button className={tab === "colisao" ? "on" : ""} onClick={() => setTab("colisao")}>Colisão</button>
         <button className={tab === "areas" ? "on" : ""} onClick={() => setTab("areas")}>Áreas</button>
+        <button className={tab === "regioes" ? "on" : ""} onClick={() => setTab("regioes")}>Regiões</button>
         <button className={tab === "validacao" ? "on" : ""} onClick={() => setTab("validacao")}>Validação{allIssues.length ? ` (${errors ? errors + " erro(s)" : allIssues.length})` : ""}</button>
       </div>
       {tab === "colisao" && colisao()}
       {tab === "areas" && areasTab()}
+      {tab === "regioes" && regioesTab()}
       {tab === "validacao" && (
         <>
           <div className="muted small">Confere o catálogo e as áreas com o schema (pasta schemas/ da origem) e com as regras de configuração. Erros impedem salvar.</div>
           <div className="actions"><button onClick={refreshBoxes}>Atualizar medidas dos objetos</button></div>
           <h4>Catálogo de colisão</h4>
           <IssueList issues={data.catalogIssues} />
-          <h4>Áreas e regiões</h4>
+          <h4>Áreas</h4>
           <IssueList issues={areaIssues} />
+          <h4>Regiões</h4>
+          <IssueList issues={data.regionIssues} />
           <div className="muted small">Objetos neste mapa: {modelRels.length} modelo(s) diferentes, {instances.length} instância(s).</div>
         </>
       )}

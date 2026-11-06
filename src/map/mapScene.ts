@@ -438,7 +438,7 @@ export class MapScene {
     if (!this.solid) return;
     const p = this.solid(model, override);
     if (!p || !p.shape || p.shape === "none" || p.shape === "terrain") return;
-    if (p.shape === "trimesh" || p.shape === "convex") {
+    if (p.shape === "trimesh" || p.shape === "convex" || p.shape === "boxes") {
       const meshes: THREE.Mesh[] = [];
       group.traverse((o) => (o as THREE.Mesh).isMesh && !o.userData.collisionWire && meshes.push(o as THREE.Mesh));
       for (const m of meshes) {
@@ -509,6 +509,75 @@ export class MapScene {
       if (!box.isEmpty()) out.set(id, { min: [box.min.x, box.min.y, box.min.z], max: [box.max.x, box.max.y, box.max.z] });
     }
     return out;
+  }
+
+  // ---------- regiões jogáveis e caixas do servidor (M4): só desenho
+  private regionGroup = new THREE.Group();
+  private serverGroup = new THREE.Group();
+
+  /** Contorno de cada região no chão, com postes nos cantos; selected destaca uma */
+  setRegions(list: { id: string; min: [number, number]; max: [number, number]; selected: boolean }[]) {
+    this.scene.remove(this.regionGroup);
+    this.regionGroup.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+    });
+    this.regionGroup = new THREE.Group();
+    for (const r of list) {
+      const color = r.selected ? 0xffffff : 0xffd24d;
+      const mat = new THREE.LineBasicMaterial({ color, depthTest: false });
+      const pts = [r.min[0], 0.12, r.min[1], r.max[0], 0.12, r.min[1], r.max[0], 0.12, r.max[1], r.min[0], 0.12, r.max[1]];
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+      const loop = new THREE.LineLoop(g, mat);
+      loop.renderOrder = 24;
+      loop.raycast = () => undefined;
+      this.regionGroup.add(loop);
+      for (const [x, z] of [[r.min[0], r.min[1]], [r.max[0], r.min[1]], [r.max[0], r.max[1]], [r.min[0], r.max[1]]]) {
+        const pg = new THREE.BufferGeometry();
+        pg.setAttribute("position", new THREE.Float32BufferAttribute([x, 0, z, x, 6, z], 3));
+        const pole = new THREE.Line(pg, mat);
+        pole.renderOrder = 24;
+        pole.raycast = () => undefined;
+        this.regionGroup.add(pole);
+      }
+    }
+    this.scene.add(this.regionGroup);
+  }
+
+  /** Caixas do servidor ([x0, z0, x1, z1, y0, y1], espaço do modelo) de um objeto, na posição, giro e escala dele */
+  setServerBoxes(boxes: number[][] | null, pos: [number, number, number], rotY: number, scale: number) {
+    this.scene.remove(this.serverGroup);
+    this.serverGroup.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+    });
+    this.serverGroup = new THREE.Group();
+    if (boxes && boxes.length) {
+      const positions: number[] = [];
+      const edge = (a: THREE.Vector3, b: THREE.Vector3) => positions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      for (const [x0, z0, x1, z1, y0, y1] of boxes) {
+        const c = [
+          new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y0, z0), new THREE.Vector3(x1, y0, z1), new THREE.Vector3(x0, y0, z1),
+          new THREE.Vector3(x0, y1, z0), new THREE.Vector3(x1, y1, z0), new THREE.Vector3(x1, y1, z1), new THREE.Vector3(x0, y1, z1),
+        ];
+        for (let i = 0; i < 4; i++) {
+          edge(c[i], c[(i + 1) % 4]);
+          edge(c[4 + i], c[4 + ((i + 1) % 4)]);
+          edge(c[i], c[4 + i]);
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x4cc9f0, transparent: true, opacity: 0.8, depthTest: false }));
+      lines.renderOrder = 25;
+      lines.raycast = () => undefined;
+      lines.position.set(...pos);
+      lines.rotation.y = THREE.MathUtils.degToRad(rotY);
+      lines.scale.setScalar(scale);
+      this.serverGroup.add(lines);
+    }
+    this.scene.add(this.serverGroup);
   }
 
   // ---------- áreas configuráveis (M4): só desenho; os dados ficam no React

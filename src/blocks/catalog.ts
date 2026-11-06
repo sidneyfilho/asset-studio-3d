@@ -7,9 +7,9 @@ export type Vec3 = [number, number, number];
 
 export type Profile = {
   note?: string;
-  shape?: "none" | "terrain" | "box" | "sphere" | "capsule" | "cylinder" | "convex" | "trimesh";
-  /** trimesh/convex: como o servidor reproduz a colisão ("footprint" = pegada gerada em server_shapes.json) */
-  server?: "footprint";
+  shape?: "none" | "terrain" | "box" | "sphere" | "capsule" | "cylinder" | "convex" | "trimesh" | "boxes";
+  /** trimesh/convex: como o servidor reproduz a colisão ("boxes" = caixas com altura geradas em server_shapes.json) */
+  server?: "boxes";
   fit?: "auto" | "explicit";
   margin?: number;
   scale?: number;
@@ -31,7 +31,7 @@ export type Catalog = {
   models?: Record<string, string>;
 };
 
-export const SHAPES = ["none", "terrain", "box", "sphere", "capsule", "cylinder", "convex", "trimesh"] as const;
+export const SHAPES = ["none", "terrain", "box", "sphere", "capsule", "cylinder", "convex", "trimesh", "boxes"] as const;
 export const BLOCK_LAYERS = ["world"];
 
 export type Issue = { level: "erro" | "aviso"; where: string; message: string };
@@ -117,8 +117,8 @@ export function lintCatalog(c: Catalog, models: string[]): Issue[] {
       if ((p.shape === "capsule" || p.shape === "cylinder") && !p.height) out.push({ level: "erro", where: `profiles.${id}`, message: `${p.shape} com fit explicit precisa de height` });
     }
     for (const b of p.blocks ?? []) if (!BLOCK_LAYERS.includes(b)) out.push({ level: "erro", where: `profiles.${id}.blocks`, message: `camada desconhecida "${b}" (válidas: ${BLOCK_LAYERS.join(", ")})` });
-    if ((p.shape === "trimesh" || p.shape === "convex") && !p.server) out.push({ level: "aviso", where: `profiles.${id}`, message: `${p.shape} usa a malha visual e o servidor não consegue reproduzir: marque "Servidor: pegada" (gerada em server_shapes.json) ou use uma forma primitiva` });
-    if (p.server && p.shape !== "trimesh" && p.shape !== "convex") out.push({ level: "erro", where: `profiles.${id}.server`, message: "só faz sentido em trimesh ou convex (as formas primitivas o servidor calcula com o perfil)" });
+    if ((p.shape === "trimesh" || p.shape === "convex") && !p.server) out.push({ level: "aviso", where: `profiles.${id}`, message: `${p.shape} usa a malha visual e o servidor não consegue reproduzir: marque "Servidor: caixas" (geradas em server_shapes.json) ou use uma forma primitiva` });
+    if (p.server && p.shape !== "trimesh" && p.shape !== "convex" && p.shape !== "boxes") out.push({ level: "erro", where: `profiles.${id}.server`, message: "só faz sentido em trimesh, convex ou boxes (as formas primitivas o servidor calcula com o perfil)" });
   }
   const used = new Set<string>([c.default_profile ?? "none", ...Object.values(c.models ?? {}), ...(c.categories ?? []).map((x) => x.profile)]);
   for (const id of Object.keys(c.profiles)) if (!used.has(id)) out.push({ level: "aviso", where: `profiles.${id}`, message: "perfil que nenhum modelo nem categoria usa (pode ser só override de instância)" });
