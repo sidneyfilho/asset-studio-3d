@@ -5,6 +5,8 @@ import { pathExists, readText, writeText, type ModelEntry } from "../api";
 import Card, { modelName } from "../Card";
 import { joinPath, type Workspace } from "../workspace";
 import { MapScene, type GizmoMode, type Snap } from "./mapScene";
+import BlocksPanel, { type BlocksTab } from "../blocks/BlocksPanel";
+import { useBlocksData } from "../blocks/useBlocksData";
 import { BLOCK_TYPES, adjustPathOf, applyAdjust, blocksPathOf, parseAdjust, parseBlocks, serializeAdjust, type Adjust, type BlocksData } from "./blocks";
 import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance, type ScatterLayer, type ScatterPoint } from "./mapFile";
 
@@ -216,8 +218,13 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   const sel = map.instances.find((i) => i.id === selected) ?? null;
   // colisão: destaca o que é sólido no jogo; e a altura do objeto selecionado (o modelo carrega depois, por isso o atraso)
   const [showSolid, setShowSolid] = useState(false);
-  const solidPrefixes = ws.config.solidPrefixes ?? [];
-  useEffect(() => sceneRef.current?.setCollisionView(showSolid ? solidPrefixes : null), [showSolid, solidPrefixes.join(",")]);
+  // catálogo de colisão, áreas e validação (M4): a colisão desenhada vem dos perfis do catálogo, como no jogo
+  // a validação só avisa dos modelos que este mapa usa (a biblioteca tem muitos que não entram nele)
+  const modelRels = useMemo(() => [...new Set(map.instances.map((i) => i.model))].sort(), [map.instances]);
+  const bdata = useBlocksData(ws, path, modelRels);
+  const [showRules, setShowRules] = useState(false);
+  const [rulesTab, setRulesTab] = useState<BlocksTab>("colisao");
+  useEffect(() => sceneRef.current?.setCollisionView(showSolid ? bdata.resolver : null), [showSolid, bdata.resolver]);
   // bloqueios do jogo (T068): camada só de leitura, vinda de <mapa>.blocks.json (gerado pelo Godot ao sincronizar)
   const [blocks, setBlocks] = useState<BlocksData | null>(null);
   const [showBlocks, setShowBlocks] = useState(false);
@@ -274,9 +281,9 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
   useEffect(() => {
     setSelInfo(null);
     if (!selected) return;
-    const t = setTimeout(() => setSelInfo(sceneRef.current?.info(selected, solidPrefixes) ?? null), 400);
+    const t = setTimeout(() => setSelInfo(sceneRef.current?.info(selected, bdata.resolver) ?? null), 400);
     return () => clearTimeout(t);
-  }, [selected, sel?.pos[1], sel?.scale]);
+  }, [selected, sel?.pos[1], sel?.scale, bdata.resolver, sel?.collision]);
   const locked = map.instances.filter((i) => i.locked);
   const hiddenList = map.instances.filter((i) => hidden.has(i.id));
   // peças que o jogo esconde quando a personagem entra (telhado e paredes da frente)
@@ -385,6 +392,10 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
             <option value="free">Livre</option>
           </select>
         </label>
+        <button className={showRules ? "on toggle" : "toggle"} onClick={() => setShowRules(!showRules)}
+          title="Catálogo de colisão, áreas configuráveis e validação (os mesmos arquivos que o jogo lê)">
+          Regras{bdata.catalogIssues.some((i) => i.level === "erro") ? " ⚠" : ""}
+        </button>
         {outer.length > 0 && (
           <button className={showSolid ? "on toggle" : "toggle"} onClick={() => setShowSolid(!showSolid)}
             title="Mostra em vermelho as malhas que têm colisão no jogo (a personagem não atravessa; sobe degraus de até 35 cm)">
@@ -448,6 +459,10 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
         </div>
       </div>
       <section className="inspector">
+        {showRules && (
+          <BlocksPanel data={bdata} instances={map.instances} selected={sel} scene={sceneRef.current} hasMapFile={Boolean(path)} tab={rulesTab} setTab={setRulesTab}
+            setInstanceCollision={(id, profile) => update(id, { collision: profile })} setMessage={setMessage} />
+        )}
         {showBlocks && blocks && (
           <div className="locked-list blocks-panel">
             <h4>Bloqueios do jogo (só leitura)</h4>
