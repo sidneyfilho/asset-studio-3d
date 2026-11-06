@@ -70,6 +70,8 @@ export class MapScene {
       new THREE.PlaneGeometry(GROUND, GROUND).rotateX(-Math.PI / 2),
       new THREE.MeshLambertMaterial({ color: 0x7f9a5c }),
     );
+    // o chão do editor fica um pouco abaixo do nível zero: o lago do mapa (água em -0,04 m) aparece por cima dele em vez de ficar escondido
+    this.ground.position.y = -0.06;
     this.scene.add(this.ground);
     this.grid = new THREE.GridHelper(GROUND, GROUND / this.cell, 0x4d5e38, 0x6a8250);
     this.grid.position.y = 0.01;
