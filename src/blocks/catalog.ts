@@ -1,7 +1,7 @@
 // Catálogo de colisão (M4): collision_catalog.json, a mesma fonte única que o jogo lê. Aqui ficam os tipos, a
 // validação (schema + referências) e a resolução do perfil de um objeto, com a MESMA precedência do jogo:
 //   override da instância > perfil do modelo > categoria (primeiro glob que casa) > perfil padrão.
-import Ajv, { type ErrorObject } from "ajv";
+import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 
 export type Vec3 = [number, number, number];
 
@@ -67,6 +67,19 @@ export const emptyCatalog = (): Catalog => ({ version: 1, default_profile: "none
 // ---------- validação com o schema (Ajv) e mensagens em português
 
 const ajv = new Ajv({ allErrors: true, strict: false });
+// um validador por schema (pelo conteúdo): reabrir o editor relê os mesmos arquivos e o Ajv não aceita registrar o mesmo $id duas vezes
+const validators = new Map<string, ValidateFunction>();
+function validatorFor(schema: unknown): ValidateFunction {
+  const key = JSON.stringify(schema);
+  let v = validators.get(key);
+  if (!v) {
+    const id = (schema as { $id?: string }).$id;
+    if (id) ajv.removeSchema(id);
+    v = ajv.compile(schema as object);
+    validators.set(key, v);
+  }
+  return v;
+}
 
 /** "/profiles/tree_trunk/radius" -> "profiles.tree_trunk.radius" */
 const pathOf = (p: string) => p.split("/").filter(Boolean).join(".") || "(raiz)";
@@ -90,7 +103,13 @@ export function ajvMessage(e: ErrorObject): string {
 
 /** Valida contra o schema carregado de <origem>/schemas; devolve uma lista de problemas com o caminho do campo */
 export function validateWithSchema(schema: unknown, data: unknown, ignorePath?: (p: string) => boolean): Issue[] {
-  const validate = ajv.compile(schema as object);
+  let validate: ValidateFunction;
+  try {
+    validate = validatorFor(schema);
+  } catch (e) {
+    // schema inválido ou ilegível: avisa em vez de derrubar a tela
+    return [{ level: "aviso", where: "schemas", message: `não consegui usar o schema: ${String((e as Error).message)}` }];
+  }
   if (validate(data)) return [];
   const out: Issue[] = [];
   for (const e of validate.errors ?? []) {

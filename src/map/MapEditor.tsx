@@ -6,6 +6,7 @@ import Card, { modelName } from "../Card";
 import { joinPath, type Workspace } from "../workspace";
 import { MapScene, type GizmoMode, type Snap } from "./mapScene";
 import BlocksPanel, { type BlocksTab } from "../blocks/BlocksPanel";
+import PanelBoundary from "../blocks/PanelBoundary";
 import { useBlocksData } from "../blocks/useBlocksData";
 import { BLOCK_TYPES, adjustPathOf, applyAdjust, blocksPathOf, parseAdjust, parseBlocks, serializeAdjust, type Adjust, type BlocksData } from "./blocks";
 import { newId, newMap, parseMap, serializeMap, type MapData, type MapInstance, type ScatterLayer, type ScatterPoint } from "./mapFile";
@@ -460,8 +461,8 @@ export default function MapEditor({ ws, models, file, onClose, onSaved }: Props)
       </div>
       <section className="inspector">
         {showRules && (
-          <BlocksPanel data={bdata} instances={map.instances} selected={sel} scene={sceneRef.current} hasMapFile={Boolean(path)} tab={rulesTab} setTab={setRulesTab}
-            setInstanceCollision={(id, profile) => update(id, { collision: profile })} setInstanceNoAreas={(id, value) => update(id, { noAreas: value || undefined })} setMessage={setMessage} />
+          <PanelBoundary><BlocksPanel data={bdata} instances={map.instances} selected={sel} scene={sceneRef.current} hasMapFile={Boolean(path)} tab={rulesTab} setTab={setRulesTab}
+            setInstanceCollision={(id, profile) => update(id, { collision: profile })} setInstanceNoAreas={(id, value) => update(id, { noAreas: value || undefined })} setMessage={setMessage} /></PanelBoundary>
         )}
         {showBlocks && blocks && (
           <div className="locked-list blocks-panel">
